@@ -1,0 +1,7 @@
+# Image for a sandboxed Claude CLI agent. Started with --runtime=runsc (gVisor) by app/services/container.py.
+FROM node:22-slim
+RUN npm install -g @anthropic-ai/claude-code && useradd -m agent
+USER agent
+WORKDIR /home/agent/work
+# Keep the container alive; the graph exec's `claude` inside it.
+CMD ["sleep", "infinity"]
