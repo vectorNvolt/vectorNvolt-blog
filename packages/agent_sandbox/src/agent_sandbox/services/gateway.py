@@ -7,12 +7,15 @@ without touching the nodes.
 """
 from __future__ import annotations
 
+import json
 import re
+import time
 
 from langgraph.types import interrupt
 
 from agent_sandbox import config
 from agent_sandbox.services import container as ct
+from agent_sandbox.services.render import TurnRenderer
 
 
 def ask_user(prompt: str) -> str:
@@ -74,3 +77,53 @@ def send_prompt(c, text: str) -> str:
     if code != 0:
         return f"[claude exited {code}]\n{out}"
     return out.strip()
+
+
+# --- persistent chat session --------------------------------------------------
+# One `claude -p --input-format stream-json --output-format stream-json` process per
+# container, kept alive across turns so the CLI holds the conversation itself.
+# stdin: one JSON user message per line; stdout: NDJSON events, `result` ends a turn.
+
+def start_chat(c) -> None:
+    ct.open_session(c, config.CHAT_CMD, tty=False)
+
+
+def send_chat_turn(c, text: str) -> str:
+    """Send one user turn, render the streamed events, return the final answer text."""
+    s = ct.get_session(c)
+    if s is None:
+        return "[no chat session]"
+    s.write(json.dumps({"type": "user", "message": {"role": "user", "content": text},
+                        "parent_tool_use_id": None, "session_id": "default"}) + "\n")
+    r = TurnRenderer()
+    deadline = time.monotonic() + config.CHAT_TURN_TIMEOUT
+    try:
+        while (left := deadline - time.monotonic()) > 0:
+            line = s.readline(timeout=left)
+            if line == "":
+                ct.close_session(c)
+                return f"[claude exited {s.exit_code()}]\n{_clean(s.stderr)}"
+            if not line or not line.strip():
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            r.feed(ev)
+            if ev.get("type") == "result":
+                answer = ev.get("result") or ""
+                return f"[claude error]\n{answer}" if ev.get("is_error") else answer
+        return "[claude turn timed out]"
+    finally:
+        r.finish()
+
+
+def close_chat(c) -> None:
+    s = ct.get_session(c)
+    if s is None:
+        return
+    s.close_stdin()
+    deadline = time.monotonic() + config.CHAT_CLOSE_TIMEOUT
+    while (left := deadline - time.monotonic()) > 0 and s.readline(timeout=left) != "":
+        pass
+    ct.close_session(c)

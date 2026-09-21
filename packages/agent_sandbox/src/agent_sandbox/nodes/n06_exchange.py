@@ -1,8 +1,10 @@
 """Node 6 (loop) — exchange loop between the sandboxed agent and the user.
 
 Two turns alternate on the self-loop:
-  agent : send the latest user message to `claude -p`, show the answer.
-  user  : interrupt FIRST, collect the next user message; `/quit` ends the loop.
+  agent : send the latest user message into the persistent `claude` stream-json
+          session (opened lazily on the first pass), render the streamed answer.
+  user  : interrupt FIRST, collect the next user message; `/quit` closes the
+          session and ends the loop.
 (Interrupt-first per pass avoids re-invoking the CLI on resume — see node 4.)
 """
 from agent_sandbox import config
@@ -12,15 +14,17 @@ from agent_sandbox.state import AgentState
 
 
 def exchange(state: AgentState) -> AgentState:
+    c = ct.client().containers.get(state["container_id"])
     if state.get("turn", "agent") == "agent":
-        c = ct.client().containers.get(state["container_id"])
-        last_user = next(m["content"] for m in reversed(state["transcript"]) if m["role"] == "user")    # reversed():
-        answer = gw.send_prompt(c, last_user)
-        gw.notify_user(answer)
+        if ct.get_session(c) is None:
+            gw.start_chat(c)
+        last_user = next(m["content"] for m in reversed(state["transcript"]) if m["role"] == "user")    # reversed(): start from the most recent message, next(): get the first one that matches
+        answer = gw.send_chat_turn(c, last_user)
         return {"turn": "user", "transcript": [{"role": "agent", "content": answer}]}
 
     nxt = gw.ask_user("Your reply (or /quit):")
     if nxt.lower() in config.EXIT_WORDS:
+        gw.close_chat(c)
         return {"done": True}
     return {"turn": "agent", "transcript": [{"role": "user", "content": nxt}]}
 
