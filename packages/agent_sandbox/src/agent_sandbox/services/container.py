@@ -90,10 +90,16 @@ import time
 # - docker exec instance is directly connected to the container process and on the other side it communicates with the host terminal through the stdin/stdout socket (via inheritance during process fork).
 # the mechanism to connect stdin/stdout of the host terminal to the container process involves creating an exec instance with a TTY and stdin enabled,
 # starting the exec instance with a socket, and then using this socket to relay input and output between the host terminal and the container process.
+class LineTooLong(Exception):
+    """The process wrote more than `max_line` bytes without a newline (or one Docker
+    frame larger than that). The caller closes the session; nothing is read further."""
+
+
 class ExecSession:
-    def __init__(self, c: Container, cmd: list[str], tty: bool = True):
+    def __init__(self, c: Container, cmd: list[str], tty: bool = True, max_line: int | None = None):
         self._api = client().api
         self._tty = tty
+        self._max_line = max_line or config.CHAT_MAX_LINE
         # Non-TTY mode: Docker multiplexes stdout/stderr on the socket with 8-byte frame headers,
         # which `readline` demuxes. Used for NDJSON protocols where a TTY would echo stdin and
         # CR-translate output.
@@ -130,14 +136,20 @@ class ExecSession:
             buf += chunk.decode(errors="replace")
             if marker and marker in buf:
                 break
+            if len(buf) > self._max_line:                                           # same bound as readline(): the login relay must not grow the host buffer without limit either
+                raise LineTooLong(f"more than {self._max_line} bytes without the marker")
         return buf
 
     def readline(self, timeout: float) -> str | None:
         """Next newline-terminated stdout line (non-TTY sessions).
-        Returns None on timeout, "" on EOF. stderr frames accumulate in `self.stderr`."""
+        Returns None on timeout, "" on EOF. stderr frames accumulate in `self.stderr`.
+        Raises LineTooLong once `max_line` bytes are buffered without a newline — a
+        line is a JSON event, and an event that big is exhaustion, not a message."""
         deadline = time.monotonic() + timeout
         while True:
             nl = self._stdout.find("\n")
+            if nl > self._max_line or (nl < 0 and len(self._stdout) > self._max_line):
+                raise LineTooLong(f"line over {self._max_line} bytes")
             if nl >= 0:
                 line, self._stdout = self._stdout[:nl], self._stdout[nl + 1:]
                 return line
@@ -159,6 +171,8 @@ class ExecSession:
             return
         while len(self._raw) >= 8:
             stream, size = struct.unpack(">BxxxL", self._raw[:8])
+            if size > self._max_line:                                       # the header is written by the daemon, but the payload it announces would be buffered whole
+                raise LineTooLong(f"frame of {size} bytes")
             if len(self._raw) < 8 + size:
                 return
             payload, self._raw = self._raw[8:8 + size], self._raw[8 + size:]

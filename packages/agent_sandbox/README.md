@@ -6,8 +6,10 @@ matter (`code_tag` + `code_package`) pins the exact commit of this package it de
 
     docker build -t claude-agent:latest -f Dockerfile.agent .
     python -m venv .venv && . .venv/bin/activate
-    pip install -e .
+    pip install -r requirements-lock.txt && pip install -e . --no-deps
     agent-sandbox
+
+    pip install -e .[dev] && pytest        # sanitiser, schema, line cap, reply check
 
 | #  | node               | kind | purpose                                                        |
 |----|--------------------|------|-----------------------------------------------------------------|
@@ -32,11 +34,22 @@ markdown, tool calls / tool results as panels, and a `duration · turns` footer.
 
 Colours come from `PALETTE` / `THEME` in `services/render.py`; edit them there.
 
+Everything the CLI sends is untrusted output of a process on a writable rootfs, so the
+renderer is fenced (`chapters/03_agent-dashboard/posts/02-improve-sec-rich-rendering-if`):
+`services/sanitize.py` turns every control sequence, C0/C1 byte and bidi/zero-width
+character into a visible marker (`␛[2J`, `⟨U+202E⟩`) before Rich sees it; tool names are
+markup-escaped; links render with their URL; text blocks and tool panels are bounded
+(head *and* tail kept); the gateway drops events that do not match the stream-json
+schema and closes the session on an over-long line or a timeout; `main.py` flushes the
+tty input queue before every `input()` and refuses a reply that carries control bytes.
+
 | env                    | default | purpose                                                       |
 |------------------------|---------|---------------------------------------------------------------|
 | `CHAT_PERMISSION_MODE` | `auto`  | `claude --permission-mode` for the session, see below         |
 | `CHAT_TURN_TIMEOUT`    | `600`   | seconds to wait for a turn's `result` event                   |
 | `CHAT_CLOSE_TIMEOUT`   | `10`    | seconds to wait for the CLI to exit after `/quit`             |
+| `CHAT_MAX_LINE`        | `1048576` | bytes per NDJSON line from the CLI; over it the session is reset |
+| `CHAT_MAX_TEXT_BLOCK`  | `20000` | chars of one text block that are rendered (head + tail)       |
 
 ### Tool permissions
 

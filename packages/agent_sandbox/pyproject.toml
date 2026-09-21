@@ -7,8 +7,15 @@ dependencies = [
     "langgraph>=0.4",
     "PyYAML>=6.0",
     "docker>=7.0",
-    "rich>=13",
+    # The renderer feeds sandbox-controlled text to these three on the host: pinned,
+    # so what the post probed is what runs. requirements-lock.txt holds the full tree.
+    "rich==15.0.0",
+    "markdown-it-py==4.2.0",
+    "Pygments==2.21.0",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
 
 [project.scripts]
 agent-sandbox = "agent_sandbox.main:main"
