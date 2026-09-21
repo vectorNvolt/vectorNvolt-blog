@@ -1,0 +1,146 @@
+# ---------------------------------------------------------------------------
+# PUBLIC REPO. Allowlist strategy: ignore everything, re-include only
+# content that is public by design, then deny secrets again on top.
+# Later rules win, so the "never" section at the bottom beats every "!".
+# ---------------------------------------------------------------------------
+
+# 1. Ignore everything, but let git descend into directories
+*
+!*/
+
+# 2. Repo housekeeping
+!.gitignore
+!.gitattributes
+!.editorconfig
+!.gitkeep
+!LICENSE
+!LICENSE.*
+
+# 3. Content & code that is meant to be public
+# prose / config
+!*.md
+!*.yml
+!*.yaml
+!*.toml
+# web
+!*.html
+!*.css
+!*.js
+!*.mjs
+!*.jsx
+!*.ts
+!*.tsx
+# python
+!*.py
+!requirements*.txt
+!pyproject.toml
+# images used by posts (no raw/large media)
+!*.svg
+!*.png
+!*.jpg
+!*.jpeg
+!*.webp
+!*.gif
+# JS tooling manifests only - NOT *.json in general (credentials.json etc.)
+!package.json
+!package-lock.json
+!tsconfig.json
+!jsconfig.json
+!langgraph.json
+!_chapter.json
+
+# Island bundles ARE tracked on purpose: the publisher inlines
+# posts/*/islands/dist/*.js into the Ghost post so the page never loads
+# external scripts. Nothing below re-ignores dist/.
+
+# 4. Build / tooling junk (would otherwise match *.js / *.py above)
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+*.js.map
+*.min.js.LICENSE.txt
+rendered/
+out/
+.langgraph_api/
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db
+*.swp
+*.log
+
+# 5. NEVER commit - credentials, secrets, private data
+.env
+.env.*
+*.env
+env.yml
+env.yaml
+.envrc
+.netrc
+.npmrc
+.pypirc
+.ghost*
+ghost.json
+ghost-*.json
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.csr
+*.jks
+*.keystore
+*.gpg
+*.asc
+*.kdbx
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*.token
+*token.*
+*secret*
+*secrets*
+*credential*
+*credentials*
+*password*
+*apikey*
+*api_key*
+*api-key*
+*.auth
+auth.yml
+auth.yaml
+auth.toml
+service-account*.json
+client_secret*.json
+.aws/
+.gcloud/
+.azure/
+.ssh/
+.kube/
+.docker/config.json
+*.sqlite
+*.sqlite3
+*.db
+*.pkl
+*.pickle
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.gguf
+*.onnx
+*.bin
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z

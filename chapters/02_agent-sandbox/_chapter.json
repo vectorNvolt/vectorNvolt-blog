@@ -1,0 +1,7 @@
+{
+  "title": "Agent sandbox",
+  "slug": "agent-sandbox",
+  "summary": "Running autonomous coding agents (Claude Code) in gVisor-sandboxed containers under a LangGraph harness: container isolation, exec channels, and the threat model for the system boundary.",
+  "order": 2,
+  "repo": "https://github.com/vectorNvolt/vectorNvolt-blog"
+}
