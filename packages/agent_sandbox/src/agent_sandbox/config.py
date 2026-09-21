@@ -13,6 +13,20 @@ AUTH_STATUS_CMD = [CLAUDE_BIN, "auth", "status"]
 AUTH_LOGIN_CMD = [CLAUDE_BIN, "auth", "login"]
 PROMPT_CMD = [CLAUDE_BIN, "-p", "--output-format", "text"]
 
+# Persistent chat session: one `claude` process per container speaking NDJSON both ways.
+# The gateway only relays text, so nobody can answer a permission prompt: `--permission-prompts
+# none` auto-denies anything that would prompt instead of blocking the process. Which tool calls
+# reach a prompt is decided by CHAT_PERMISSION_MODE (`claude --permission-mode`):
+#   auto               (default) classifier approves safe actions, the rest are denied
+#   bypassPermissions  no checks at all — every tool call runs (gVisor is the only boundary)
+#   ""                 CLI default mode — effectively chat-only, all tool calls denied
+CHAT_PERMISSION_MODE = os.getenv("CHAT_PERMISSION_MODE", "auto")
+CHAT_CMD = [CLAUDE_BIN, "-p", "--output-format", "stream-json", "--input-format", "stream-json",
+            "--verbose", "--include-partial-messages", "--permission-prompts", "none"] \
+    + (["--permission-mode", CHAT_PERMISSION_MODE] if CHAT_PERMISSION_MODE else [])
+CHAT_TURN_TIMEOUT = float(os.getenv("CHAT_TURN_TIMEOUT", "600"))    # a turn with tool calls can be long
+CHAT_CLOSE_TIMEOUT = float(os.getenv("CHAT_CLOSE_TIMEOUT", "10"))
+
 # Loop guards
 MAX_AUTH_ATTEMPTS = int(os.getenv("MAX_AUTH_ATTEMPTS", "5"))
 EXIT_WORDS = {"/quit", "/exit", "quit", "exit"}

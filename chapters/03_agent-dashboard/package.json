@@ -1,0 +1,14 @@
+{
+  "name": "agent-dashboard-islands",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:islands": "node islands/build.mjs"
+  },
+  "dependencies": {
+    "preact": "^10.19.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.5"
+  }
+}

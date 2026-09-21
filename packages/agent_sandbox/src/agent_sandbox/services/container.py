@@ -78,6 +78,7 @@ def exec(c: Container, cmd: list[str], stdin: str | None = None, timeout: int | 
 # - PKCE (Proof Key for Code Exchange) is used in the OAuth flow to enhance security by
 # mitigating authorization code interception attacks.
 import socket
+import struct
 import time
 
 # Exec sessions for interactive command execution inside containers. Interactivity is achieved through maintaining an open socket connection for stdin and stdout.
@@ -90,9 +91,16 @@ import time
 # the mechanism to connect stdin/stdout of the host terminal to the container process involves creating an exec instance with a TTY and stdin enabled,
 # starting the exec instance with a socket, and then using this socket to relay input and output between the host terminal and the container process.
 class ExecSession:
-    def __init__(self, c: Container, cmd: list[str]):
+    def __init__(self, c: Container, cmd: list[str], tty: bool = True):
         self._api = client().api
-        self.exec_id = self._api.exec_create(c.id, cmd, stdin=True, tty=True)["Id"]  # Create an exec instance in the container with a TTY and stdin enabled, and store its ID.
+        self._tty = tty
+        # Non-TTY mode: Docker multiplexes stdout/stderr on the socket with 8-byte frame headers,
+        # which `readline` demuxes. Used for NDJSON protocols where a TTY would echo stdin and
+        # CR-translate output.
+        self._raw = b""            # undecoded bytes (partial frame)
+        self._stdout = ""          # decoded stdout awaiting a newline
+        self.stderr = ""
+        self.exec_id = self._api.exec_create(c.id, cmd, stdin=True, tty=tty)["Id"]   # Create an exec instance in the container with a TTY and stdin enabled, and store its ID.
                                                                                      # "exec instance" is a running command within the container that can be attached to for input/output.
                                                                                      # exec instance under the hood is a process running inside the container, which can be controlled and communicated with through the Docker API.
                                                                                      # this command running means the exec instance is active and can be interacted with through the attached socket.
@@ -100,7 +108,7 @@ class ExecSession:
                                                                                      # interactive comm is possible due to the fact that the exec instance maintains an open socket connection for stdin and stdout.
                                                                                      # exec instance is represented by the `exec_id` and can be interacted with using the attached socket.
                                                                                      # "cmd" is the command that will be executed inside the container within this exec instance.
-        sio = self._api.exec_start(self.exec_id, socket=True, tty=True)
+        sio = self._api.exec_start(self.exec_id, socket=True, tty=tty)
         self._sock: socket.socket = getattr(sio, "_sock", sio)                       # ":" defines the type hint for the `_sock` attribute as a `socket.socket` instance.
                                                                                      # then "=" assigns the actual socket object to the `_sock` attribute.
                                                                                      # getattr(): retrieves the `_sock` attribute from `sio` if it exists; otherwise, it returns `sio` itself.
@@ -124,8 +132,50 @@ class ExecSession:
                 break
         return buf
 
+    def readline(self, timeout: float) -> str | None:
+        """Next newline-terminated stdout line (non-TTY sessions).
+        Returns None on timeout, "" on EOF. stderr frames accumulate in `self.stderr`."""
+        deadline = time.monotonic() + timeout
+        while True:
+            nl = self._stdout.find("\n")
+            if nl >= 0:
+                line, self._stdout = self._stdout[:nl], self._stdout[nl + 1:]
+                return line
+            if time.monotonic() >= deadline:
+                return None
+            try:
+                chunk = self._sock.recv(65536)
+            except socket.timeout:
+                continue
+            if not chunk:
+                return ""
+            self._raw += chunk
+            self._demux()
+
+    def _demux(self) -> None:
+        if self._tty:
+            self._stdout += self._raw.decode(errors="replace")
+            self._raw = b""
+            return
+        while len(self._raw) >= 8:
+            stream, size = struct.unpack(">BxxxL", self._raw[:8])
+            if len(self._raw) < 8 + size:
+                return
+            payload, self._raw = self._raw[8:8 + size], self._raw[8 + size:]
+            if stream == 2:
+                self.stderr += payload.decode(errors="replace")
+            else:
+                self._stdout += payload.decode(errors="replace")
+
     def write(self, text: str) -> None:
         self._sock.sendall(text.encode())
+
+    def close_stdin(self) -> None:
+        """Send EOF on the process's stdin (what `docker exec` does on CloseWrite)."""
+        try:
+            self._sock.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
 
     def exit_code(self) -> int | None:
         return self._api.exec_inspect(self.exec_id)["ExitCode"]
@@ -140,9 +190,9 @@ class ExecSession:
 _sessions: dict[str, ExecSession] = {}                          # _sessions is a dictionary mapping container IDs to their corresponding ExecSession instances.
                                                                 # "str" represents the container ID as a string.
 
-def open_session(c: Container, cmd: list[str]) -> ExecSession:
+def open_session(c: Container, cmd: list[str], tty: bool = True) -> ExecSession:
     close_session(c)                                            # Close any existing exec session for the container before opening a new one.
-    _sessions[c.id] = ExecSession(c, cmd)                       # Create a new exec session for the container and store it in the _sessions dictionary.
+    _sessions[c.id] = ExecSession(c, cmd, tty=tty)              # Create a new exec session for the container and store it in the _sessions dictionary.
                                                                 # _sessions[c.id] address by key=container ID, value=ExecSession(c, cmd)
     return _sessions[c.id]                                      # Return the newly created exec session.
 
