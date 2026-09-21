@@ -1,0 +1,7 @@
+{
+  "title": "Agent dashboard",
+  "slug": "agent-dashboard",
+  "summary": "An observability dashboard for the agent-sandbox harness: surfacing exec-channel events, container lifecycle, and the chapter-02 threat-vector scorecard in a live UI an operator can watch during a run.",
+  "order": 3,
+  "repo": "https://github.com/vectorNvolt/vectorNvolt-blog"
+}
