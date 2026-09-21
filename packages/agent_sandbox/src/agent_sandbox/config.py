@@ -26,6 +26,12 @@ CHAT_CMD = [CLAUDE_BIN, "-p", "--output-format", "stream-json", "--input-format"
     + (["--permission-mode", CHAT_PERMISSION_MODE] if CHAT_PERMISSION_MODE else [])
 CHAT_TURN_TIMEOUT = float(os.getenv("CHAT_TURN_TIMEOUT", "600"))    # a turn with tool calls can be long
 CHAT_CLOSE_TIMEOUT = float(os.getenv("CHAT_CLOSE_TIMEOUT", "10"))
+# Bounds on what the sandbox may push through the exec channel (IP-3) and onto the
+# terminal (IP-1). Over the line cap the session is closed: a line without a newline
+# would otherwise grow the host buffer without limit. Over the block cap the middle of
+# a text block is cut before markdown-it-py and Pygments see it.
+CHAT_MAX_LINE = int(os.getenv("CHAT_MAX_LINE", str(1 << 20)))          # bytes per NDJSON line
+CHAT_MAX_TEXT_BLOCK = int(os.getenv("CHAT_MAX_TEXT_BLOCK", "20000"))    # chars per rendered text block
 
 # Loop guards
 MAX_AUTH_ATTEMPTS = int(os.getenv("MAX_AUTH_ATTEMPTS", "5"))

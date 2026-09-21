@@ -16,6 +16,7 @@ from langgraph.types import interrupt
 from agent_sandbox import config
 from agent_sandbox.services import container as ct
 from agent_sandbox.services.render import TurnRenderer
+from agent_sandbox.services.sanitize import sanitize
 
 
 def ask_user(prompt: str) -> str:
@@ -34,7 +35,9 @@ _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\]8;;.*?(\x07|\x1b\\)|\r")
 
 
 def _clean(s: str) -> str:
-    return _ANSI.sub("", s).strip()
+    """Login output and CLI stderr: drop the CLI's own colours and links for
+    readability (the regex), then mark whatever else is in there (the parser)."""
+    return sanitize(_ANSI.sub("", s)).strip()
 
 
 def is_authenticated(c) -> bool:
@@ -48,7 +51,11 @@ def start_login(c) -> str:
     The session stays open; `finish_login` writes the code into it."""
     s = ct.open_session(c, config.AUTH_LOGIN_CMD)                           # open_session(): creates a new exec session for the container and returns it.
 
-    out = s.read_until(config.AUTH_CODE_PROMPT, config.AUTH_TIMEOUT)        # out is
+    try:
+        out = s.read_until(config.AUTH_CODE_PROMPT, config.AUTH_TIMEOUT)    # out is
+    except ct.LineTooLong as e:
+        ct.close_session(c)
+        return f"login output over the line cap ({e})"
     if config.AUTH_CODE_PROMPT not in out:
         ct.close_session(c)
         return f"login did not reach the code prompt:\n{_clean(out)}"
@@ -63,7 +70,11 @@ def finish_login(c, user_reply: str) -> tuple[bool, str]:               # return
     if s is None:
         return False, "no pending login session"
     s.write(user_reply.strip() + "\r")                                  # write the user's OAuth code followed by a carriage return to the login session
-    out = s.read_until(config.AUTH_FAIL_MARKER, config.AUTH_TIMEOUT)    # success -> CLI exits (EOF); failure -> marker
+    try:
+        out = s.read_until(config.AUTH_FAIL_MARKER, config.AUTH_TIMEOUT)    # success -> CLI exits (EOF); failure -> marker
+    except ct.LineTooLong as e:
+        ct.close_session(c)
+        return False, f"login output over the line cap ({e})"
     ok = s.exit_code() == 0 and is_authenticated(c)                     # determine if the login was successful: exit code 0 and authenticated
     ct.close_session(c)                                                 # wrong code -> fresh login next loop
     return ok, _clean(out)
@@ -88,8 +99,67 @@ def start_chat(c) -> None:
     ct.open_session(c, config.CHAT_CMD, tty=False)
 
 
+# --- event schema ---------------------------------------------------------------
+# The shape half of trusting the envelope: an event is dispatched only if its type is
+# known and every field the renderer reads has the type the renderer expects. Anything
+# else is dropped before `feed()` sees it — an unknown type, a `message` that is a
+# string, a content block without a `type`, a `duration_ms` that is a list. What the
+# fields *say* is still the CLI's claim; the renderer presents them as such.
+#
+# A spec is {field: (type | nested spec, required)}. A list spec is [item spec].
+_STR_OR_NONE = (str, type(None))
+_BLOCK = {"type": (str, True), "text": (str, False), "name": (str, False),
+          "content": ((str, list), False), "is_error": (bool, False)}
+_MESSAGE = {"content": ((str, [_BLOCK]), False)}
+_EVENT_SCHEMA = {
+    "system": {},
+    "stream_event": {"event": ({"type": (str, True),
+                                "content_block": ({"type": (str, True), "name": (str, False)}, False),
+                                "delta": ({"type": (str, True), "text": (str, False)}, False)}, True)},
+    "assistant": {"message": (_MESSAGE, True)},
+    "user": {"message": (_MESSAGE, True)},
+    "result": {"result": (_STR_OR_NONE, False), "is_error": (bool, False),
+               "duration_ms": ((int, float), False), "num_turns": (int, False)},
+}
+
+
+def _conforms(value, spec) -> bool:
+    if isinstance(spec, dict):                       # object: check each declared field
+        if not isinstance(value, dict):
+            return False
+        for field, (fspec, required) in spec.items():
+            if field not in value:
+                if required:
+                    return False
+                continue
+            if not _conforms(value[field], fspec):
+                return False
+        return True
+    if isinstance(spec, list):                       # homogeneous list
+        return isinstance(value, list) and all(_conforms(v, spec[0]) for v in value)
+    if isinstance(spec, tuple):                      # any of: types and/or nested specs
+        return any(_conforms(value, alt) for alt in spec)
+    return isinstance(value, spec) and not (spec is int and isinstance(value, bool))
+
+
+def valid_event(ev) -> bool:
+    return isinstance(ev, dict) and ev.get("type") in _EVENT_SCHEMA and _conforms(ev, _EVENT_SCHEMA[ev["type"]])
+
+
+def _parse_event(line: str) -> dict | None:
+    """One NDJSON line → a conforming event, or None. `json.loads` on a deeply nested
+    line raises RecursionError, not JSONDecodeError; both mean 'drop the line'."""
+    try:
+        ev = json.loads(line)
+    except (json.JSONDecodeError, RecursionError, ValueError):
+        return None
+    return ev if valid_event(ev) else None
+
+
 def send_chat_turn(c, text: str) -> str:
-    """Send one user turn, render the streamed events, return the final answer text."""
+    """Send one user turn, render the streamed events, return the final answer text.
+    Any failure of the channel itself — EOF, an over-long line, a timeout — closes the
+    session so the next turn starts a fresh process instead of reading stale events."""
     s = ct.get_session(c)
     if s is None:
         return "[no chat session]"
@@ -99,21 +169,28 @@ def send_chat_turn(c, text: str) -> str:
     deadline = time.monotonic() + config.CHAT_TURN_TIMEOUT
     try:
         while (left := deadline - time.monotonic()) > 0:
-            line = s.readline(timeout=left)
+            try:
+                line = s.readline(timeout=left)
+            except ct.LineTooLong as e:
+                ct.close_session(c)
+                return f"[claude session reset: {e}]"
             if line == "":
                 ct.close_session(c)
                 return f"[claude exited {s.exit_code()}]\n{_clean(s.stderr)}"
             if not line or not line.strip():
                 continue
-            try:
-                ev = json.loads(line)
-            except json.JSONDecodeError:
+            ev = _parse_event(line)
+            if ev is None:
+                r.dropped += 1
                 continue
             r.feed(ev)
-            if ev.get("type") == "result":
-                answer = ev.get("result") or ""
+            if ev["type"] == "result":
+                answer = sanitize(ev.get("result") or "")
                 return f"[claude error]\n{answer}" if ev.get("is_error") else answer
-        return "[claude turn timed out]"
+        # Whatever the process still emits belongs to this turn; a later turn must not
+        # read it as its own answer. Close, so node 6 opens a new session next pass.
+        ct.close_session(c)
+        return "[claude turn timed out — session reset]"
     finally:
         r.finish()
 
@@ -124,6 +201,9 @@ def close_chat(c) -> None:
         return
     s.close_stdin()
     deadline = time.monotonic() + config.CHAT_CLOSE_TIMEOUT
-    while (left := deadline - time.monotonic()) > 0 and s.readline(timeout=left) != "":
+    try:
+        while (left := deadline - time.monotonic()) > 0 and s.readline(timeout=left) != "":
+            pass
+    except ct.LineTooLong:
         pass
     ct.close_session(c)

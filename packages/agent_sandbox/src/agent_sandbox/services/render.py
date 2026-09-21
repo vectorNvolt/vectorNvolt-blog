@@ -5,6 +5,13 @@ Event flow per turn (with --include-partial-messages):
   assistant     finished message (content blocks: text, tool_use)
   user          tool results
   result        end of turn
+
+Every string taken out of an event is untrusted: it was written by a process on a
+writable rootfs, or by a file that process read. Each one goes through `sanitize()`
+before Rich sees it, is bounded in size, and — where it is interpolated into Rich
+*markup* rather than passed as `Text` — through `markup.escape()` as well. Links
+render with their URL visible. Envelope fields (`is_error`, `duration_ms`,
+`num_turns`) are shown as what the CLI reported, not as facts the harness checked.
 """
 from __future__ import annotations
 
@@ -13,10 +20,14 @@ import json
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.panel import Panel
 from rich.status import Status
 from rich.text import Text
 from rich.theme import Theme
+
+from agent_sandbox import config
+from agent_sandbox.services.sanitize import sanitize
 
 PALETTE = {
     "background": "#1b1918", "foreground": "#e4ded7",
@@ -70,21 +81,40 @@ THEME = Theme({
 console = Console(theme=THEME)
 
 
-def _md(text: str) -> Markdown:
-    return Markdown(text, code_theme="ansi_dark", inline_code_theme="ansi_dark")
-
 _TOOL_INPUT_MAX = 1500
 _TOOL_RESULT_MAX = 1200
+_TOOL_NAME_MAX = 64
 
 
 def _clip(s: str, n: int) -> str:
-    return s if len(s) <= n else s[:n] + f"\n… ({len(s) - n} more chars)"
+    """Bound `s` to about `n` chars keeping the head *and* the tail: the half of a
+    command that matters is as likely at the end as at the start."""
+    if len(s) <= n:
+        return s
+    head, tail = n * 2 // 3, n // 3
+    return f"{s[:head]}\n… ({len(s) - head - tail} chars omitted) …\n{s[-tail:]}"
+
+
+def _md(text: str) -> Markdown:
+    # hyperlinks=False: a link shows as `text (url)` instead of an OSC 8 sequence
+    # whose target only the terminal knows. The block is sanitised and bounded
+    # before markdown-it-py and Pygments run on it.
+    return Markdown(_clip(sanitize(text), config.CHAT_MAX_TEXT_BLOCK), hyperlinks=False,
+                    code_theme="ansi_dark", inline_code_theme="ansi_dark")
 
 
 def _block_text(content) -> str:
     if isinstance(content, str):
         return content
-    return "\n".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
+    return "\n".join(str(b.get("text", "")) for b in content or []
+                     if isinstance(b, dict) and b.get("type") == "text")
+
+
+def _tool_name(name) -> str:
+    """Sanitised, single-line, bounded. Where it goes into a Panel *title* — Rich
+    markup, in which `[link=…]Read[/link]` would be obeyed — the caller also escapes."""
+    name = sanitize(str(name or "?")).replace("\n", " ")
+    return name[:_TOOL_NAME_MAX] + ("…" if len(name) > _TOOL_NAME_MAX else "")
 
 
 class TurnRenderer:
@@ -93,7 +123,10 @@ class TurnRenderer:
         self._status.start()
         self._live: Live | None = None
         self._text = ""
+        self._text_overflow = 0        # chars of a streamed block past CHAT_MAX_TEXT_BLOCK, not kept
         self._streamed_text = False
+        self._finished = False
+        self.dropped = 0               # events the gateway refused (malformed); shown in the footer
 
     # --- event dispatch ------------------------------------------------------
 
@@ -111,6 +144,9 @@ class TurnRenderer:
     def finish(self) -> None:
         self._stop_status()
         self._end_text()
+        if self.dropped and not self._finished:
+            console.print(Text(f"{self.dropped} malformed event(s) dropped", style="error.title"))
+        self._finished = True
 
     # --- streaming text ------------------------------------------------------
 
@@ -122,16 +158,25 @@ class TurnRenderer:
                 self._begin_text()
             elif block.get("type") == "tool_use":
                 self._end_text()
-                self._set_status(f"calling {block.get('name', 'tool')}…")
+                self._set_status(f"calling {_tool_name(block.get('name', 'tool'))}…")
         elif kind == "content_block_delta":
             delta = e.get("delta") or {}
             if delta.get("type") == "text_delta":
                 if self._live is None:
                     self._begin_text()
-                self._text += delta.get("text", "")
+                self._append(str(delta.get("text", "")))
                 self._live.update(self._tail())
         elif kind == "content_block_stop":
             self._end_text()
+
+    # A streamed block is bounded while it arrives: past the cap the deltas are
+    # counted, not kept, so neither `_tail()` nor the final markdown pass grows
+    # with what the model chooses to emit.
+    def _append(self, s: str) -> None:
+        room = config.CHAT_MAX_TEXT_BLOCK - len(self._text)
+        if room > 0:
+            self._text += s[:room]
+        self._text_overflow += max(len(s) - room, 0)
 
     # While streaming, show only a plain-text tail in a transient Live: a Live taller than the
     # terminal re-emits scrolled-off lines and duplicates output. The full markdown is printed
@@ -145,9 +190,10 @@ class TurnRenderer:
         self._live.start()
 
     def _tail(self) -> Text:
-        lines = self._text.splitlines()
         keep = max(console.size.height - 2, 3)
-        return Text("\n".join(lines[-keep:]), style="tail")
+        # rsplit with a limit walks back only `keep` newlines, not the whole block.
+        lines = self._text.rsplit("\n", keep)[-keep:]
+        return Text(sanitize("\n".join(lines)), style="tail")
 
     def _end_text(self) -> None:
         if self._live is not None:
@@ -155,44 +201,54 @@ class TurnRenderer:
             self._live = None
             if self._text.strip():
                 console.print(_md(self._text))
+            if self._text_overflow:
+                console.print(Text(f"… ({self._text_overflow} more chars not shown)", style="footer"))
             self._text = ""
+            self._text_overflow = 0
 
     # --- completed blocks ----------------------------------------------------
 
     def _assistant(self, msg: dict) -> None:
         self._end_text()
-        for b in msg.get("content") or []:
+        content = msg.get("content")
+        for b in content if isinstance(content, list) else []:
+            if not isinstance(b, dict):
+                continue
             if b.get("type") == "text":
                 if not self._streamed_text and b.get("text"):
                     self._stop_status()
-                    console.print(_md(b["text"]))
+                    console.print(_md(str(b["text"])))
                 self._streamed_text = False
             elif b.get("type") == "tool_use":
                 self._stop_status()
-                body = _clip(json.dumps(b.get("input", {}), indent=2, ensure_ascii=False), _TOOL_INPUT_MAX)
-                console.print(Panel(Text(body, style="tool.body"), title=f"[tool.title]tool · {b.get('name', '?')}[/]",
+                body = _clip(sanitize(json.dumps(b.get("input", {}), indent=2, ensure_ascii=False)), _TOOL_INPUT_MAX)
+                console.print(Panel(Text(body, style="tool.body"),
+                                    title=f"[tool.title]tool · {escape(_tool_name(b.get('name')))}[/]",
                                     border_style="tool.border", expand=False))
                 self._set_status("running tool…")
 
     def _tool_results(self, msg: dict) -> None:
-        for b in msg.get("content") or []:
+        content = msg.get("content")
+        for b in content if isinstance(content, list) else []:
             if not isinstance(b, dict) or b.get("type") != "tool_result":
                 continue
             self._stop_status()
-            err = bool(b.get("is_error"))
-            body = _clip(_block_text(b.get("content")), _TOOL_RESULT_MAX) or "(empty)"
+            err = bool(b.get("is_error"))                     # the CLI's claim, shown as such — no decision hangs on it
+            body = _clip(sanitize(_block_text(b.get("content"))), _TOOL_RESULT_MAX) or "(empty)"
             kind = "error" if err else "result"
             console.print(Panel(Text(body, style=f"{kind}.body"),
-                                title=f"[{kind}.title]tool result" + (" · error" if err else "") + "[/]",
+                                title=f"[{kind}.title]tool result" + (" · error (reported)" if err else "") + "[/]",
                                 border_style=f"{kind}.border", expand=False))
         self._set_status("thinking…")
 
     def _result(self, ev: dict) -> None:
         self.finish()
-        secs = (ev.get("duration_ms") or 0) / 1000
-        foot = f"{secs:.1f}s · {ev.get('num_turns', '?')} turn(s)"
+        ms, turns = ev.get("duration_ms"), ev.get("num_turns")
+        foot = f"{ms / 1000:.1f}s" if isinstance(ms, (int, float)) and not isinstance(ms, bool) else "?s"
+        foot += f" · {turns if isinstance(turns, int) and not isinstance(turns, bool) else '?'} turn(s)"
         if ev.get("is_error"):
             foot += " · error"
+        foot += " — as reported by the cli"
         console.print(Text(foot, style="footer"))
 
     # --- spinner -------------------------------------------------------------
