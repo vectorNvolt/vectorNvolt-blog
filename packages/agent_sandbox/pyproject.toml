@@ -1,7 +1,7 @@
 [project]
 name = "agent-sandbox"
 version = "0.1.0"
-description = "Code for the 'Agent sandbox' chapter of the Vector n Volt blog."
+description = "LangGraph harness driving the Claude CLI inside a gVisor-sandboxed container."
 requires-python = ">=3.11"
 dependencies = [
     "langgraph>=0.4",

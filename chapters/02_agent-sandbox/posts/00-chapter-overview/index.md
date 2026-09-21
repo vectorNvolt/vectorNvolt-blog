@@ -5,6 +5,7 @@ status: draft
 tags: [langgraph, agent-sandbox]
 custom_excerpt: "What this chapter covers and how the posts build on each other — plus the generic threat inventory for autonomous agent sandboxes that every post reuses: nine threat vectors, their concrete threat cases, the isolation layer that closes each, the runtime tiers, and the research behind them."
 code_tag: agent-sandbox/v0.1.0
+code_package: agent_sandbox
 ---
 
 ## Why containerize an autonomous coding agent

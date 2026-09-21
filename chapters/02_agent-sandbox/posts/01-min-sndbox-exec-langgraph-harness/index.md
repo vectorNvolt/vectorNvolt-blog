@@ -1,7 +1,8 @@
 ---
 title: Minimal sandbox exec LangGraph harness
 type: dev
-code_tag: agent-sandbox/post-01-min-sndbox-exec-langgraph-harness
+code_tag: ch02_ag-snd/p01_min-snd__post_code
+code_package: agent_sandbox
 slug: minimal-sandbox-exec-langgraph-harness
 status: draft
 tags: [langgraph, agent-sandbox]
@@ -11,7 +12,7 @@ feature_image:
 
 ## Where this post starts
 
-The [chapter overview](/agent-sandbox-overview/) builds the threat inventory this chapter works from — vectors T1–T9, cases T1a…T9e, layers L1–L7, interaction points IP-1…IP-6, the runtime tiers and the research behind them. None of that is repeated here. This post is about the code: the minimal harness in `src/agent_sandbox/`, where each interaction point shows up in it, and which threat cases the implementation closes today. Everything it doesn't close is referred to by ID.
+The [chapter overview](/agent-sandbox-overview/) builds the threat inventory this chapter works from — vectors T1–T9, cases T1a…T9e, layers L1–L7, interaction points IP-1…IP-6, the runtime tiers and the research behind them. None of that is repeated here. This post is about the code: the minimal harness in `packages/agent_sandbox/src/agent_sandbox/`, where each interaction point shows up in it, and which threat cases the implementation closes today. Everything it doesn't close is referred to by ID.
 
 <style>
 .id-col-table th:first-child,
