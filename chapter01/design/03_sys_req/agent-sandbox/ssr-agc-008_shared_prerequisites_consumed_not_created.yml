@@ -1,0 +1,19 @@
+SSR-AGC-008:
+  title: "Consume the shared agent network, agent image and Workspace-Agents root without creating them"
+  kind: "structural"
+  usecase_step_ref: "USC-002: steps 2, 3 (preconditions); USC-006: preconditions"
+
+  statement: "The system shall consume the shared agent network, the agent image and the Workspace-Agents root as they exist and shall not create them."
+
+  condition: "For every run of the creation tool, from its start until it returns."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-AGENT-NET Agent network control"
+    - "IP-AGENT-WORKSPACE-FS Agent workspace folder"
+
+  constraints:
+    - "Must show no agent network created, changed or removed by the run at IP-AGENT-NET, including a run that failed because the network was absent, which SFR-AGC-003 holds."
+    - "Must show no agent image built or fetched by the run at IP-DOCKER-ENGINE."
+    - "Must locate the Agent network control (create_agent_net) at /usr/local/bin/create_agent_net, or at the path in the environment variable AGENT_SANDBOX_ARM_BIN when it is set to a non-blank value, and the Workspace-Agents root as SFR-AGC-023 defines (AGENT_SANDBOX_WORKSPACE_ROOT); these two overrides change only where the tool looks, not what it may create."
+    - "Must show no Workspace-Agents root created, repaired or changed in ownership by the run at IP-AGENT-WORKSPACE-FS, including a run that failed because the root was absent or unsuitable (SFR-AGC-023), only the folder for the requested identity and its .output subfolder inside it."

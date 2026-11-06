@@ -1,0 +1,285 @@
+# ==============================================================================
+# USC-004 — derived from USS-004 (design/01_user_story/uss-004_create_agent_net.md)
+# Template: tmpl_usecase_v2.yml
+# Interaction points and channels are defined in
+# design/00_system_boundary/interaction_points.yml (items marked `# proposed`
+# there are not yet confirmed by USS-004).
+# `# proposed` = not yet in interaction_points.yml / not stated in USS-004;
+#                needs confirmation before SFR derivation.
+# `# TBD` = undefined in USS-004 and its source docs.
+# `# open` = conflict inside USS-004; needs a decision before SFR derivation.
+# Scope: creation of `agents-net`. The subcommands of the same binary are
+# covered as alternative flows so their contract stays with the tool that
+# ships them: `arm <container>` (alt-1, called by USC-002), `disarm <container>`
+# (alt-2, called by USC-006 and reused by USC-007 and by the guard of
+# agent-sandbox; behaviour specified in USS-007), `check-gate <container>`
+# (alt-3, read-only), `released` (alt-4, read-only, used by the guard) and
+# `evict <mac>` (alt-5, used by the guard).
+# Mechanism detail: the SFR-NET-* requirements of this use case (design/03_sys_req/agent-net/).
+# `requirement_refs` on a step, alternative flow or exception flow lists the
+# requirements (design/03_sys_req/agent-net/) that realise it.
+# ==============================================================================
+
+USC-004:
+  title: "Create the shared agent network in agent-host with one command"
+  summary: "The developer runs a single Go executable as root inside `agent-host`; it checks the preconditions, creates the shared bridge network `agents-net` (`172.30.0.0/24`) through the Docker engine, installs the gate that keeps every port of that network closed until its container is armed, and verifies both, so USS-002 containers have one network to be created on. The container's DNS resolver file (`/etc/resolv.conf`) is not provided by this use case; it is a read-only mount of a host file set up by `create_agent_container` (USC-002 step 4, SFR-AGC-024) and verified inside the container (USC-002 steps 8 and 9; SFR-NET-020 records the dependency, it is implemented in agent-sandbox, not by `create_agent_net`). After each dockerd start `agent_lifecycle restore` (USS-001 unit `agent-restore.service`) runs `remove_agent_net` and then this tool again, so the gate is rebuilt automatically. The same binary provides the Agent network control: `arm <container>` applies the host-side controls, `disarm <container>` removes them, `check-gate <container>` checks them read-only, `released` lists the elements of the gate set and `evict <mac>` removes one of them."
+
+  actors:
+    primary: "Developer"
+    supporting:
+      - "Network creation tool (Go executable `create_agent_net`, run as root in `agent-host`)"
+      - "`agent-host` (WSL2 distro from USS-001)"
+      - "Docker engine in `agent-host`"
+      - "Agent network (`agents-net`, shared bridge network)"
+      - "Agent network control (subcommands `create_agent_net arm <container>`, `disarm <container>`, read-only `check-gate <container>` and `released`, and `evict <mac>`)"
+      - "Container creation tool (`create_agent_container`, USS-002; caller of `arm` and `check-gate`)"
+      - "Container removal tool (`remove_agent_container`, USS-006; caller of `disarm`)"
+      - "Lifecycle guard (`agent_lifecycle guard`, agent-sandbox; caller of `disarm`, `check-gate`, `released` and `evict`)"
+      - "Network removal tool (`remove_agent_net`, USS-007; runs the `disarm` code per container)"
+
+  interaction_points:
+    - ip_ref: "IP-CLI-CREATE-AGENT-NET"
+      direction: "inbound"
+      type: "cli_entrypoint"
+      boundary: "`wsl.exe -d agent-host -u root -e create_agent_net` from host Windows -> Go executable (`create_agent_net`) as root in `agent-host`"
+      transport: "wsl.exe process execution / standard I/O streams"
+      role: "primary entry (command invocation: no arguments, or `arm <container>` / `disarm <container>` / `check-gate <container>` / `released` / `evict <mac>`) and exit (success/failure report, exit code)"
+    - ip_ref: "IP-DOCKER-ENGINE"
+      direction: "outbound"
+      type: "subprocess_cli"
+      boundary: "Go process -> Docker engine (`docker` CLI or Engine API) in `agent-host`"
+      transport: "Child process stdio or local Docker socket"
+      role: "tool checks the engine and existing networks (`network_inspect`, `network_list`) and creates the network (`network_create`); `arm` and `check-gate` only inspect the container (never attach it: containers are created attached to `agents-net`; `arm` also reads its runtime and restart policy)"   # proposed operations (marked proposed in interaction_points.yml)
+    - ip_ref: "IP-AGENT-NET"
+      direction: "outbound"
+      type: "host_network_control"
+      boundary: "Go process -> host Docker bridge network / host network namespace in `agent-host`"
+      transport: "The Agent network control run as root in `agent-host`, which calls `nft` (the `netdev` tables `agents_gate` and per-port `as_port_<id>`; the `agent-host` kernel has no nftables bridge family), `iptables`, `ip` and `bridge`"
+      role: "the network this use case provides, its gate (`gate_install`) and the Agent network control: `arm` consumed by USC-002 (alt-1), `disarm` by USC-006, USC-007 and the guard (alt-2: `port_disarm`), `check-gate` (alt-3: `port_check`), `released` (alt-4: `gate_list`) and `evict` (alt-5: `gate_evict`)"
+
+  preconditions:
+    - "USC-001 is complete: `agent-host` exists, Docker is installed and running, and `create_agent_net` is installed at `/usr/local/bin/create_agent_net` (`root:root`, mode 755, SHA-256 checked)"
+    - "The tool never creates or modifies `daemon.json` and never reloads or restarts the Docker daemon; USS-001 owns the Docker runtime registration"
+    - "The tool is run as root (`-u root`), holding `CAP_NET_ADMIN` in the host network namespace of `agent-host` and access to the Docker socket; `agent-operator` needs neither sudo nor `docker` group membership"
+    - "The Docker network `agents-net` does not exist yet"
+    - "The subnet `172.30.0.0/24` does not overlap a subnet in use in `agent-host` (existing Docker networks, host addresses and routes including the WSL NAT interface); Docker's default address pools are not a clash criterion"
+
+  main_flow:
+    - step: 1
+      actor: "Developer"
+      action: "Runs `wsl.exe -d agent-host -u root -e create_agent_net` from host Windows (no arguments)."
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "command invocation `create_agent_net`, args: [] — Developer -> Network creation tool"
+    - step: 2
+      actor: "Network creation tool"
+      action: "Validates the invocation: exactly six forms are accepted, no arguments (this flow), `arm <container>` (alt-1), `disarm <container>` (alt-2), `check-gate <container>` (alt-3), `released` (alt-4) or `evict <mac>` (alt-5); anything else is a usage error. For `arm`, `disarm` and `check-gate` the container name must be a valid Docker container name; the name `gate` is rejected, because its rule tag `agent-net:gate` would collide with the tag of the network gate rule. For `evict` the argument must parse as a 6-byte MAC address."
+      requirement_refs: ["SFR-NET-001"]
+    - step: 3
+      actor: "Network creation tool"
+      action:
+        - "Checks it runs as root with `CAP_NET_ADMIN` in the host network namespace and access to the Docker socket (default `/var/run/docker.sock`; the only environment overrides are `AGENT_NET_DOCKER_SOCKET`, `AGENT_NET_DAEMON_JSON` for `daemon.json` and `AGENT_NET_DOCKER_PID_FILE` for the engine process-id file, all read-only)"
+        - "Confirms the Docker engine is reachable"
+        - "Runs operation `network_inspect` (`docker network inspect agents-net`) and requires that the network does NOT exist"
+        - "Runs operation `network_list` and requires that `172.30.0.0/24` overlaps no existing Docker network subnet"
+        - "Reads the addresses and routes of `agent-host` in the host network namespace and requires that `172.30.0.0/24` overlaps none of them"
+        - "Records the SHA-256 of `daemon.json` (or its absence) and the engine start identity (process-id file and `/proc/<pid>/stat` start time) for the step 5 check"
+        - "Reports a mismatch and stops; never repairs host configuration"
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`network_inspect` request (not-found result), `network_list` subnets, exit statuses — Network creation tool -> Docker engine, result back"
+    - step: 4
+      actor: "Network creation tool"
+      action:
+        - "Runs operation `network_create` (`docker network create --driver bridge --subnet 172.30.0.0/24 agents-net`), without `--internal`, so the network keeps its NAT route out; outbound traffic is bounded by the host-side egress rules applied by `arm` (layer 6)"
+        - "Reads `bridge-nf-call-iptables` and requires it to be `1` (read only, never set; the gate rule below needs it). This check runs after the network exists, because the bridge must exist first; on failure no gate is installed and the network is left in place (err-10)"
+        - "Installs the `agents-net` gate (`gate_install`, SFR-NET-025) on the bridge device `br-<id>` of the new network: `table netdev agents_gate` with ingress and egress chains bound to the bridge device, both `policy drop`, accepting in ingress only frames whose source MAC is in the set `released` (empty at creation) and that carry the port mark (bit `0x10000000`, set by the accept rules of the released per-port table; the gate clears it when it accepts, so it never reaches host routing or iptables; SFR-NET-034), and in egress only frames whose destination MAC is in `released`; and the `iptables` rule in `DOCKER-USER` `-i <br> -o <br> -m physdev --physdev-is-bridged -j DROP` with the comment `agent-net:gate`, which blocks port-to-port traffic between unarmed containers"
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`network_create` with `driver: bridge`, `subnet: 172.30.0.0/24`, `name: agents-net`; network ID — Network creation tool -> Docker engine, result back; gate tables and rule — Network creation tool -> host network namespace (IP-AGENT-NET)"
+      requirement_refs: ["SFR-NET-005", "SFR-NET-025", "SFR-NET-034", "SSR-NET-005", "SSR-NET-006"]
+    - step: 5
+      actor: "Network creation tool"
+      action:
+        - "Runs operation `network_inspect` (`docker network inspect agents-net`): network exists, driver is `bridge`, `Internal` is `false`, subnet is `172.30.0.0/24`"
+        - "Verifies the gate as inspected state (each failed gate check is listed prefixed `gate:`): `bridge-nf-call-iptables` is `1`, the table `agents_gate`, the set `released` of type `ether_addr`, both chains bound to the bridge device with `policy drop` and exactly one accept rule on the set (the ingress rule with the mark condition and the mark clearing; a gate without the mark is a mismatch, SFR-NET-034, SSR-NET-006), and the `agent-net:gate` rule in `DOCKER-USER`. The elements of `released` are not read back at creation (the set is declared without elements); they are listed with their comments by `released` (alt-4)"
+        - "Confirms `daemon.json` is unchanged (its SHA-256 or absence matches the value recorded in step 3) and the engine was not restarted (its start identity matches; a reload that keeps the process is detected only through the hash)"
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`network_inspect` result (`Name`, `Driver`, `Internal`, `IPAM.Config[].Subnet`) — Network creation tool -> Docker engine, result back"
+      requirement_refs: ["SFR-NET-006", "SFR-NET-025", "SFR-NET-034", "SSR-NET-006"]
+    - step: 6
+      actor: "Network creation tool"
+      action: "Reports success on stdout, stating that `arm`, `disarm`, `check-gate`, `released` and `evict` are available, and returns `exit_code: 0`."
+      requirement_refs: ["SFR-NET-007"]
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stdout success report, `exit_code: 0` — Network creation tool -> Developer"
+
+  alternative_flows:
+    - id: "alt-1"
+      at_step: 2
+      condition: "Invoked as `create_agent_net arm <container>` by `create_agent_container` (USC-002), not by the Developer"
+      requirement_refs: ["SFR-NET-008", "SFR-NET-009", "SFR-NET-010", "SFR-NET-011", "SFR-NET-024", "SFR-NET-028", "SFR-NET-029", "SFR-NET-032", "SFR-NET-034", "SSR-NET-002", "SSR-NET-005", "SSR-NET-006"]
+      behavior:
+        - "Pipeline (13 numbered steps, progress lines `[n/13]`): 1 validate, 2 privilege, 3 record engine state, 4 require network and gate, 5 require the container (exists, running, paused, attached to `agents-net` only, runtime `runsc`, restart policy `no`), 6 clean slate, 7 identify the host veth, 8 load the closed port table, 9 apply the host-side controls, 10 verify them, 11 release, 12 verify the engine unchanged, 13 report armed. Steps 1 to 5 are preconditions (exit 1 on failure); the first failing step stops the run"
+        - "Precondition: the caller created the container with `--network agents-net --runtime runsc --restart no`, started it and paused it (`docker pause`); it stays paused for the whole run. No agent process runs at container start: PID 1 is tini running dockerd, and the agent runs only through `docker exec -u 1001` (`enter_agent`, IP-DOCKER-ENGINE `agent_enter`) after the release, the check-gate and the unpause. The container is attached at creation, never later: `docker network connect` is rejected while `none` is attached, and gVisor (`runsc`) never sees an interface added after the start (verified on the real host, 2026-10-31). Until release its MAC is not in the set `released` of the `agents-net` gate (step 4), so the gate drops every frame to and from its port"
+        - "Verifies with `docker inspect`, before loading any control, that the container exists, is running and is paused (`State.Running` and `State.Paused` both `true`), is attached to `agents-net` and to no other network, has runtime `runsc` (SFR-NET-032) and has restart policy exactly `no` (an empty policy is refused); and that the gate (table `agents_gate`) is present; otherwise it changes nothing and reports `GATED_UNARMED`, `exit_code: 1` (err-9). A missing gate means the network predates the gate: recreate it (`remove_agent_net`, then `create_agent_net`; `agent_lifecycle restore` does this at every dockerd start)"
+        - "Attaches nothing: `arm` never runs `docker network connect` or `disconnect`; the veth already exists, while the container is frozen"
+        - "Note (DNS resolver file, SFR-NET-020, SFR-AGC-024): the container's `/etc/resolv.conf` is a read-only bind mount of the host file `/etc/agent-sandbox/resolv.conf` made by `create_agent_container` (USC-002 step 4) and checked inside the container after the unpause (USC-002 steps 8 and 9), so Docker does not generate its own file (embedded DNS `127.0.0.11`). The real-run confirmation that `runsc` accepts the mount is tracked in USC-002 (notes). `arm` neither creates nor changes the file"
+        - "Clean slate (step 6, SFR-NET-028), after the container checks and before the veth is identified: runs the name-keyed disarm of alt-2 in the arming run itself, so that nothing of an earlier container or run of that name (set elements, port table, tagged rules, neighbour and forwarding entries) is inherited. A leftover that cannot be removed fails the arm (control `clean slate`, `exit_code: 2`, `GATED_UNARMED`); a port table bound to the live veth of another container refuses the arm (`exit_code: 1`) and nothing is changed"
+        - "Looks up the host-side veth from the host, never from inside the sandbox: `docker inspect` gives the container PID, the peer interface index is read in the container's network namespace and matched to the veth on the host"
+        - "Removes the agent MAC from the set `released` again when loading the closed port table (an absent entry is not an error), so that a MAC left there cannot make a re-arm inherit an open gate; then loads the per-port table `table netdev as_port_<id>` with ingress and egress chains bound to that veth, both `policy drop`, no accept rules (layer 1)"
+        - "Sets port isolation `isolated on` (layer 5), the kernel MAC lock `locked on`, `learning off` and a static FDB entry pinning the agent MAC to its port (layer 4), a permanent neighbour entry on the host (agent IP -> agent MAC on the `agents-net` bridge, `nud permanent`, so the host never sends ARP requests to the container; before any control, a stale PERMANENT entry for that IP with another `lladdr` is deleted when no live `agents-net` endpoint owns that `lladdr`, and fails the arm (control `neighbour entry`) when one does), and the iptables rules in `DOCKER-USER` and `INPUT` tagged `agent-net:<container>` (layer 6): default-deny egress with two explicit rules: (a) DNS rule, UDP and TCP port 53 to `1.1.1.1` and `9.9.9.9` only; (b) endpoint rule, TCP port 443 to `api.anthropic.com` and `platform.claude.com` only (names from the root-owned `/etc/agent-net/endpoints.json`, default those two; resolved host-side at arm time, A records only, to IPs, currently `160.79.104.10`, which can change; pinned until the next arm or a manual `refresh_endpoints`; IPv6 egress is dropped at the port, IPv6 frames are never accepted); everything else dropped; host-addressed traffic in `INPUT`: accept `ESTABLISHED,RELATED` from the container IP (replies to flows the host started), then drop the rest from it, no DNS accept. Binding published ports to `127.0.0.1` is not checked by `create_agent_net`; it is the concern of the container creation tool"
+        - "Verifies all of it: table, chain policies, port flags, FDB entry, neighbour entry (permanent, verified before the atomic release), iptables rules (the DNS rule (a) and the endpoint rule (b) each checked as a distinct control), and that the agent MAC is still not in `released`"
+        - "Releases the port: adds the agent MAC to the set `released` of `agents_gate`, as an element with the comment `<container name>` (SFR-NET-029), and the accept rules of the per-port table in one atomic `nft -f` (the gate and the port open together), the ingress accept rules setting the port mark `0x10000000` that the gate requires and clears (SFR-NET-034), the accept rules namely source identity (ingress only from the agent MAC and IPv4 source, ARP sender MAC/IP pinned; layer 2) and destination limit (ingress only to the bridge MAC (IPv4) plus broadcast ARP requests for the bridge IP with sender MAC/IP pinned, egress only from the bridge MAC with bridge ARP limited to replies addressed to the agent MAC; no ARP reply rule from the container; IPv6 and all other frame types dropped; layer 3); then verifies them again (including the MAC in `released`) and reports success to the caller, which then runs `check-gate` (alt-3) while the container is still paused and unpauses it only when the check succeeds. When the release or its read-back fails, the MAC is removed from `released` again and the port is loaded closed again"
+        - "Each port has its own table and its own entry in `released`; the gate itself is installed once, by the creation of the network, and is never rebuilt by `arm`; tables and rules of other ports are never touched"
+        - "Not persistent across a WSL restart; container removal does not remove the per-port nft and fdb state, only the disarm does (SSR-AGC-016); recovery is remove and recreate, never `docker start` of an old agent container. The per-port controls stay bound to the veth (no nft bridge family in the WSL2 kernel), so a restarted container is replaced, never repaired. A restarted container is removed, not re-armed; a frame of a restarted container, whose new veth has no port table and so sets no mark, is dropped by the gate even when its MAC is still in `released`. After a dockerd start `agent_lifecycle restore` removes the old agent containers, rebuilds the network and gate and writes the ready marker `/run/agent-sandbox/ready`; `agent_lifecycle guard` follows container start, unpause, die and update and network connect and disconnect: on `die` it runs `disarm` (alt-2), on the other events it runs `check-gate` (alt-3) and removes the container on a clean failure (exit 2); on an error it disarms first and removes the container only when the disarm exited 0, otherwise the container is left in place. It also reconciles at start-up and every `AGENT_SANDBOX_GUARD_RECONCILE` seconds (default 60) with `released` (alt-4), `evict` (alt-5) and `disarm` (alt-2)"
+        - "Fail-closed: see err-7"
+    - id: "alt-2"
+      at_step: 2
+      condition: "Invoked as `create_agent_net disarm <container>` by `remove_agent_container` (USC-006), by the guard of agent-sandbox (on `die`, on an error path, and for names whose container is gone) and by `create_agent_container` before `docker create` and after an arming failure; as the clean slate of `arm` (alt-1 step 6); the same code runs per container inside `remove_agent_net` (USC-007). Behaviour specified in USS-007"
+      requirement_refs: ["SFR-NET-012", "SFR-NET-027", "SFR-NET-029", "SSR-NET-003", "SSR-NET-005"]
+      behavior:
+        - "Name-keyed (SFR-NET-027): works for a running, a stopped and a removed container; a missing container is not a failure. Checks privilege and engine; without `agents-net` there is nothing to disarm: succeeds (`exit_code: 0`). Inside `remove_agent_net` a container that is gone by then is skipped as already removed"
+        - "Collects the identity of the name from every source that still holds it: the MACs from docker (live or stopped container), from the accept rules of the port table `as_port_<id>` and from the elements of the set `released` whose comment is the container name; the IPs from docker and from the iptables rules tagged `agent-net:<container>`. Finds the port from the live veth (as in alt-1) and, for a stopped or removed container, by the table name `as_port_<id>`"
+        - "Removes first, from the set `released` of `agents_gate`, every element whose comment is the container name or whose MAC was collected, whatever its comment (`gate_unrelease`), so the gate closes the port; then deletes the port's netdev table `as_port_<id>` (`nft_delete_table`), every iptables rule whose comment is exactly `agent-net:<container>` in `DOCKER-USER` and `INPUT`, whatever its IP (`iptables_delete`), the neighbour entries of the collected IPs on the bridge (only one whose lladdr is the container's MAC, or a PERMANENT one owned by no live `agents-net` endpoint, i.e. left by an uncleanly disarmed container; an entry owned by another live endpoint stays) and the static FDB entries of the collected MACs on every port of the bridge (`fdb_delete`), in this order (released elements, table, iptables, neighbour, FDB); isolation, `locked on` and learning off stay on the veth"
+        - "Never deletes or changes the table `agents_gate`, its chains or the rule `agent-net:gate`: only set elements of `released` are deleted; the tables, rules and entries of another container are never touched. A port table bound to the live veth of a different running container is refused before anything is changed (`exit_code: 1`, `NOT_DISARMED`)"
+        - "Verifies that no element with the comment or a collected MAC, no table, no tagged rule, no neighbour entry and no forwarding entry of the container is left, then reports `disarmed` (or `nothing to disarm` when none existed, `exit_code: 0`); every deletion tolerates absence (idempotent); a failure returns `exit_code: 2`, state `DISARM_INCOMPLETE` (run it again)"
+    - id: "alt-3"
+      at_step: 2
+      condition: "Invoked as `create_agent_net check-gate <container>` (read-only per-port check, `port_check`) by `create_agent_container` (after `arm`, while the container is still paused) and by the guard of agent-sandbox"
+      requirement_refs: ["SFR-NET-021", "SFR-NET-033", "SFR-NET-034", "SSR-NET-006"]
+      behavior:
+        - "Finds the container's host-side veth as in alt-1"
+        - "Reads back the port's controls (table `as_port_<id>` and its chain policies and accept rules, port flags, static FDB entry, neighbour entry, tagged iptables rules) and the `agents-net` gate (table `agents_gate`, the rule `agent-net:gate`, whether the agent MAC is in `released`) and the confinement of the container (restart policy, attached networks, running state) and reports their state, including the port mark that the ingress accept rules of a released port set and that the gate requires and clears (SFR-NET-034); changes nothing"
+        - "Report on stdout: one line per control, `<control>: ok|missing|mismatch`, for the 12 controls, in this order: table `as_port_<id>` present, both chain policies, accept rules (released or none = closed; a released port whose ingress accept rules do not set the mark is a `mismatch`), `agents-net gate` (table, set, chains, rule `agent-net:gate`, `bridge-nf-call-iptables`; a gate whose ingress rule does not require and clear the mark is a `mismatch`),`gate release` (agent MAC in `released` consistent with the accept rules of the port table), port flags (isolated, learning off, locked on), static FDB entry, neighbour entry (permanent, lladdr = agent MAC), the DNS egress rule (UDP and TCP 53 to `1.1.1.1` and `9.9.9.9` only), the endpoint egress rule (TCP 443 to `api.anthropic.com` and `platform.claude.com` only), the other iptables rules tagged `agent-net:<container>` and `container confinement` (restart policy exactly `no`, attached to `agents-net` and no other network, running; not required to be unpaused, because the caller runs the check while the container is still paused; SFR-NET-033); every control is checked even after a failure. Then a final summary line stating the port state: `closed` (agent MAC not in `released`, table with no accept rules), `released` (agent MAC in `released`, verified accept rules present) or `inconsistent` (any other combination; a missing gate table is `inconsistent`)"
+        - "Strictly read-only: changes nothing (no table, rule, flag, neighbour entry or FDB entry is added, modified or deleted)"
+        - "Success: every control `ok` (state `closed` or `released`); returns `exit_code: 0`"
+        - "Not checked: invalid invocation, missing or unknown container, or missing privilege or prerequisite (not root, Docker unavailable, `agents-net` missing); returns `exit_code: 1`, exit state `NOT_CHECKED`"
+        - "Check ran and at least one control is missing or mismatched, or a read-back failed: returns `exit_code: 2`, exit state `GATE_INCONSISTENT`. Same convention as `disarm` (1 prerequisite, 2 runtime/control failure)"
+    - id: "alt-4"
+      at_step: 2
+      condition: "Invoked as `create_agent_net released` (read-only listing of the gate set, `gate_list`), by the guard of agent-sandbox"
+      requirement_refs: ["SFR-NET-030", "SFR-NET-029", "SFR-NET-001", "SFR-NET-002"]
+      behavior:
+        - "Checks privilege and engine and compares the engine state as the other forms do"
+        - "Reads the set `released` of the table `agents_gate` as JSON and writes on stdout one line per element, `<mac> <comment>`, and nothing else there; the comment is the container name and is empty for an untagged element, so the line is `<mac> ` (the MAC, a blank, nothing). Step lines and debug lines go to stderr only"
+        - "Lists nothing and succeeds when the gate table does not exist; changes nothing (no table, rule or element is added, modified or deleted)"
+        - "Returns `exit_code: 0` when the set was read (or is absent), `exit_code: 1` (`NOT_CHECKED`) for an invalid invocation or a missing privilege or prerequisite, `exit_code: 2` (`GATE_INCONSISTENT`) when the set cannot be read"
+    - id: "alt-5"
+      at_step: 2
+      condition: "Invoked as `create_agent_net evict <mac>` (`gate_evict`), by the guard of agent-sandbox, for a `released` element that carries no container name or whose container is gone"
+      requirement_refs: ["SFR-NET-031", "SSR-NET-005", "SFR-NET-001", "SFR-NET-002"]
+      behavior:
+        - "Checks privilege and engine and compares the engine state as the other forms do; the argument must parse as a 6-byte MAC (else usage error, `exit_code: 1`)"
+        - "Deletes exactly the element with that MAC from the set `released`; never the table `agents_gate`, its chains, its other elements or the rule `agent-net:gate`. An element that is not in the set is no error (reported as not in the set)"
+        - "Reads the set again after the deletion and fails when the MAC is still in it"
+        - "Returns `exit_code: 0` when the element was evicted or was not there, `exit_code: 1` (`NOT_EVICTED`) for an invalid invocation or a missing privilege or prerequisite, `exit_code: 2` (`EVICT_INCOMPLETE`) when the element could not be deleted or is still there (it can be run again)"
+
+  exception_flows:
+    - id: "err-1"
+      at_step: 2
+      condition: "Any argument other than none, `arm <container>` (see alt-1), `disarm <container>` (see alt-2), `check-gate <container>` (see alt-3), `released` (see alt-4) or `evict <mac>` (see alt-5); or the container name `gate` in `arm`, `disarm` or `check-gate`; or an `evict` argument that is not a MAC address"
+      requirement_refs: ["SFR-NET-001"]
+      system_reaction: "Usage error on stderr; nothing is created; returns `exit_code: 1`. When the first argument is `arm` / `disarm` / `check-gate` or `released` / `evict`, the exit state is that mode's not-done state (`GATED_UNARMED` / `NOT_DISARMED` / `NOT_CHECKED` / `NOT_CHECKED` / `NOT_EVICTED`)."   # proposed exit codes and states (interaction_points.yml)
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr usage error, `exit_code: 1` — Network creation tool -> Developer"
+    - id: "err-2"
+      at_step: 3
+      condition: "Not running as root, `CAP_NET_ADMIN` missing in the host network namespace, or no access to the Docker socket"
+      system_reaction: "Report and stop on stderr; nothing is created; returns `exit_code: 1`."   # proposed exit code
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Network creation tool -> Developer"
+    - id: "err-3"
+      at_step: 3
+      condition: "Docker engine unavailable"
+      system_reaction: "Report and stop on stderr; nothing is created; returns `exit_code: 1`."   # proposed exit code
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Network creation tool -> Developer"
+    - id: "err-4"
+      at_step: 3
+      condition: "`agents-net` already exists (the existing network is not modified)"
+      system_reaction: "Report and stop on stderr; returns `exit_code: 1`."   # proposed exit code
+      exit_state: "ALREADY_EXISTS"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr report naming the existing network, `exit_code: 1` — Network creation tool -> Developer"
+    - id: "err-5"
+      at_step: 3
+      condition: "Subnet `172.30.0.0/24` overlaps a subnet in use in `agent-host` (Docker network, host address or route)"
+      system_reaction: "Report and stop on stderr naming the overlapping network, address or route; nothing is created; returns `exit_code: 1`."   # proposed exit code
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr failure report with the clashing range, `exit_code: 1` — Network creation tool -> Developer"
+    - id: "err-6"
+      at_step: 4
+      condition: "`network_create` fails"
+      system_reaction: "Reports failure on stderr including the Docker error; no cleanup / rollback; returns `exit_code: 2`."   # proposed exit code
+      exit_state: "CREATE_FAILED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr failure report with Docker error, `exit_code: 2` — Network creation tool -> Developer"
+    - id: "err-10"
+      at_step: 4
+      condition: "`bridge-nf-call-iptables` is not `1` (read only; the tool never sets it), read after `network_create` succeeded"
+      system_reaction: "Reports the value found on stderr; the gate is not installed and the network is left in place (no cleanup / rollback); returns `exit_code: 2`. Run `remove_agent_net` after fixing the host setting, then `create_agent_net` again."
+      exit_state: "CREATED_UNVERIFIED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr failure report naming the setting, `exit_code: 2` — Network creation tool -> Developer"
+    - id: "err-9"
+      at_step: 2
+      requirement_refs: ["SFR-NET-008", "SFR-NET-028", "SFR-NET-032", "SSR-NET-006"]
+      condition: "alt-1: the container does not exist, is not running or is not paused, is not attached to `agents-net` only, its runtime is not `runsc`, its restart policy is not exactly `no`, or `agents-net` or its gate does not exist, or `bridge-nf-call-iptables` is not `1`, or the port table `as_port_<id>` is bound to another live veth (checked before anything is loaded; a network without the gate predates it and must be recreated)"
+      system_reaction: "Refused before any control is installed: nothing is loaded or changed; the failure is reported on stderr to the caller; returns `exit_code: 1`."
+      exit_state: "GATED_UNARMED"
+      interaction_point:
+        ip_ref: "IP-AGENT-NET"
+        channel: "CHAN-AGENT-NET"
+        object_flow: "precondition refusal report, `exit_code: 1` — Network creation tool (`arm`) -> Container creation tool"
+    - id: "err-7"
+      at_step: 2
+      requirement_refs: ["SFR-NET-011", "SFR-NET-028"]
+      condition: "alt-1: any apply or verify step of the Agent network control fails for a container (including the clean slate, control `clean slate`)"
+      system_reaction: "Fail-closed: the container is still paused and its port has no accept rules; the MAC is not in `released`; the failure naming the failed control is reported to the caller (`exit_code: 2`), which first disarms the name (alt-2, exit 0 required) and then removes the container while it is still paused and reports the failure on IP-CLI-CREATE-AGENT-CONTAINER (USC-002, `exit_code: 2`). When no tool removes the container, the guard may remove it, but only after a successful disarm of its name; when that disarm fails the container is left in place, paused and closed. `arm` itself does no rollback."
+      exit_state: "GATED_UNARMED"
+      interaction_point:
+        ip_ref: "IP-AGENT-NET"
+        channel: "CHAN-AGENT-NET"
+        object_flow: "arming failure report naming the failed control — Network creation tool (`arm`) -> Container creation tool"
+    - id: "err-8"
+      at_step: 5
+      condition: "Verification fails: network missing, driver not `bridge`, `Internal` not `false`, subnet differs from `172.30.0.0/24`, the gate is missing or differs (table, set `released`, chains, `agent-net:gate` rule), or the `daemon.json` hash or the engine start identity differs from step 3"
+      system_reaction: "Reports which check failed on stderr; the network is left in place (no cleanup / rollback); returns `exit_code: 2`."   # proposed exit code
+      exit_state: "CREATED_UNVERIFIED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr failure report naming the failed check, `exit_code: 2` — Network creation tool -> Developer"
+
+  postconditions:
+    - "`create_agent_net` exited with `exit_code: 0`; the Docker network `agents-net` exists as a bridge network (not `Internal`, NAT route out) with subnet `172.30.0.0/24`, usable by USS-002 containers, and its gate (`agents_gate` table, set `released` loaded empty, `agent-net:gate` rule) is installed and verified, so every port is closed until its container is armed; outbound traffic is bounded by the host-side egress allowlist (layer 6) once a container is armed. A network created before the gate existed must be recreated (`remove_agent_net`, then `create_agent_net`), which `agent_lifecycle restore` does at every dockerd start; the host configuration is not changed"
+    - "`create_agent_net arm <container>`, `disarm <container>`, `check-gate <container>`, `released` and `evict <mac>` are available (shipped in the binary installed by USC-001; network creation does nothing extra to provide them)"
+    - "No host-side per-agent controls exist yet; they are applied per container by the Agent network control (alt-1) and removed only by the disarm (SSR-AGC-016), which also runs on `die` (guard) and before a container of the same name is created, not by container removal alone; they and the gate do not survive a WSL restart, while `agents-net` itself does (a network whose gate is gone is refused by `arm`; `agent_lifecycle restore` recreates it at the next dockerd start, by hand `remove_agent_net` then `create_agent_net`; the same holds for a gate created without the port mark, SFR-NET-034)"
+    - "`daemon.json`, the Windows host and `dev-distro` are unchanged"
+    - "The whole network was created by one run of the Go executable"

@@ -1,0 +1,17 @@
+SSR-AGC-012:
+  title: "Bound the memory, processor, process count and temporary filesystems of the agent container"
+  kind: "structural"
+  usecase_step_ref: "USC-002: steps 4, 9"
+
+  statement: "The system shall hold every agent container under an explicit memory limit, processor limit, process-count limit and size-bounded temporary filesystems."
+
+  condition: "For every agent container, from its start until it is removed."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must show a memory limit of 4g (4294967296 bytes) and a processor limit of 2 (2000000000 NanoCpus) on the container, inspected at IP-DOCKER-ENGINE, and neither left unlimited."
+    - "Must show a process-count limit of 512 on the container, inspected at IP-DOCKER-ENGINE, and not left unlimited; the value is a design value, to be adjusted only after it has been measured against a real agent workload that runs inner containers."
+    - "Must show a temporary filesystem at /tmp with the options rw, noexec, nosuid and size 512m, and a temporary filesystem over the container engine storage directory /var/lib/docker with the options rw, nosuid and size 2g, both declared at creation and inspected at IP-DOCKER-ENGINE, auditable next to the memory limit and enforced by the host."
+    - "Must keep the fixed sizes of the temporary filesystems (2g + 512m) strictly below the memory limit of 4g, because they are charged against the same memory limit and an equal size lets the container exhaust its own memory. This holds by the fixed values in the tool's configuration (a comment there states it); the tool does not compute or check the sum at run time. The final verification compares the inspected memory, NanoCpus, PidsLimit and exactly these two tmpfs mounts (path and options) with the fixed values, and lists every mismatch."

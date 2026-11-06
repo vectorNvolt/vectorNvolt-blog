@@ -1,0 +1,21 @@
+SFR-HOST-007:
+  title: "Apply the distro configuration by stopping agent-host"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 8 (exception err-4)"
+
+  statement: "The system shall stop the agent-host distro so that the written distro configuration takes effect on its next start."
+
+  condition: "When the distro configuration of agent-host has been written."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must stop only the distro agent-host through IP-WSL-CLI."
+    - "Must leave the distro agent-host to restart on the next command executed in it."
+    - "Must, when the stop fails, stop the sequence, report the failed step to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 2."
+
+  post_conditions:
+    - "The distro agent-host has not been removed and no other distro has been stopped."
+    - "The distro agent-host starts with the written configuration on its next command."

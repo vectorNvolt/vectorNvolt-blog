@@ -1,0 +1,16 @@
+SSR-HOST-002:
+  title: "Hold agent-operator as the non-root default user of agent-host"
+  kind: "structural"
+  usecase_step_ref: "USC-001: steps 6, 7, 12"
+
+  statement: "The system shall hold agent-operator, a non-root user, as the default user of the agent-host distro."
+
+  condition: "For every start of the agent-host distro, from the verified creation until the distro is removed."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+
+  constraints:
+    - "Must show agent-operator as the user of a command run inside agent-host without a user being named, checked on the running distro."
+    - "Must show agent-operator with the UID 1001, checked as the user agent-operator, which SFR-HOST-005 establishes and SFR-HOST-009 verifies."
+    - "Must show agent-operator with no root-equivalent privilege: no sudo, admin, wheel, adm, disk, lxd, libvirt or docker group membership and no sudoers entry (checked as `sudo -n true` failing; a missing sudo binary also passes), checked as the user agent-operator, which SFR-HOST-005 establishes and SFR-HOST-009 verifies."

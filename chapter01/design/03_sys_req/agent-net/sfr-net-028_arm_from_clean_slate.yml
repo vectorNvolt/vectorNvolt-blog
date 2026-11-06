@@ -1,0 +1,20 @@
+SFR-NET-028:
+  title: "Arm from a clean slate"
+  kind: "functional"
+  usecase_step_ref: "USC-004: alt-1"
+
+  statement: "The system shall remove, as a step of every arming request and before the port is identified and closed, whatever an earlier container or run of the same name left behind, and fail the arming when a leftover cannot be removed."
+
+  condition: "When the container checks of an arming request (SFR-NET-008) have passed."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must run the name-keyed disarm of SFR-NET-027 in the arming run itself, after the container checks and before the host veth is identified and the port table is loaded, so that nothing of an earlier container or run is inherited."
+    - "Must fail the arming with exit status 2, state GATED_UNARMED, control `clean slate`, naming the leftover, when a leftover cannot be removed; the container stays paused and closed by the gate (SFR-NET-011)."
+    - "Must refuse the arming with exit status 1 (state GATED_UNARMED) and change nothing when a port table is bound to the live veth of another container."
+    - "Must not change the identification of the container (its inspected state and port) made by the container checks."
+
+  post_conditions:
+    - "At the start of the port closing no element of released, port table, tagged iptables rule, neighbour entry or forwarding entry of the container name exists."

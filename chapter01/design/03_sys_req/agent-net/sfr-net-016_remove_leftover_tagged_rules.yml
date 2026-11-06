@@ -1,0 +1,21 @@
+SFR-NET-016:
+  title: "Remove leftover tagged iptables rules"
+  kind: "functional"
+  usecase_step_ref: "USC-007: step 7, alt-2, err-5"
+
+  statement: "The system shall delete every iptables rule whose comment starts `agent-net:` that is left in `DOCKER-USER` and `INPUT`."
+
+  condition: "After the leftover per-port tables have been removed."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must identify the rules by their comment prefix only and delete them by rule number from a fresh listing, highest first."
+    - "Must delete the rules of both chains in the order `DOCKER-USER`, `INPUT`, including the gate rule `agent-net:gate` (USC-007 step 7), before the gate table is deleted (SFR-NET-026)."
+    - "Must leave every rule without that comment untouched. This all-tags sweep belongs to the network removal only; the name-keyed disarm (SFR-NET-027) deletes only the rules tagged `agent-net:<container>` of its own container and never the rule `agent-net:gate`."
+    - "Must tolerate rules that are already absent."
+    - "Must, when a rule deletion fails, report what failed on stderr and return `exit_code: 2`, state `REMOVE_INCOMPLETE`, without rollback; the remaining removal steps still run and the removal can be run again."
+
+  post_conditions:
+    - "No iptables rule with an `agent-net:` comment exists."

@@ -1,0 +1,20 @@
+SSR-AGC-011:
+  title: "Run the agent workload as non-root user 1001 with only the allowlisted capabilities"
+  kind: "structural"
+  usecase_step_ref: "USC-002: steps 4, 7, 8, 9"
+
+  statement: "The system shall run the agent process and every process it starts itself in the agent container under uid and gid 1001, started with an explicit user (docker exec -u 1001), in a container whose capabilities are limited by the closed allowlist of SSR-AGC-009 and by no-new-privileges (SSR-AGC-010). The uid alone is given because an explicit group (-u 1001:1001) makes Docker drop the supplementary group docker; with -u 1001 the gid 1001 and the group docker come from the image's /etc/passwd and /etc/group."
+
+  condition: "For every agent container, from the unpause until the container is removed."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must check, in the final verification (SFR-AGC-009), by `docker exec -u 1001 <container> id` at IP-DOCKER-ENGINE, that the uid is 1001 and the gid is 1001; a different or missing value is a failed check."
+    - "Must, as the only enforced capability limit, have the container created with all capabilities dropped and only the SSR-AGC-009 allowlist added, and no-new-privileges set, and check these in the final verification from the inspected container. The tool does not read the effective, permitted, inheritable, ambient or bounding capability sets of any process, and does not check them: that they are empty for the agent process, and that the bounding set equals the allowlist, follows from the creation options and is not verified by the tool."
+    - "Must show every agent process started through the engine's exec interface with the explicit user 1001 (docker exec -u 1001, uid only, never 1001:1001), never with the image default user, which is uid 0 because the image sets no USER; so the agent payload never runs as uid 0. The one exec as uid 0 by the creation tool itself, the /etc/resolv.conf write of SFR-AGC-024 (USC-002 step 8), is not agent work: it runs a fixed command, before any agent work is started."
+    - "Must show uid 0 only in the container init (tini), the in-container dockerd and its helper processes, as a declared deviation from the uid minimum."
+    - "Must show the container not created with a non-root user for its init process, because the daemon bootstrap would fail; the final verification requires the inspected Config.User to be empty."
+    - "Must show, as a declared deviation, that the agent user is a member of the in-container docker group and so can reach the in-container engine socket (USS-005). Must check the membership by an exec with the explicit user (docker exec -u 1001 <container> id -nG) whose group list includes docker. The tool checks only that docker is among the groups; it does not check that the agent user is the only member of the group. Membership gives root-equivalent control of the in-container engine: the agent can make the engine start containers as uid 0 inside the agent container. This does not give uid 0 to the agent process itself. The containing boundary is the isolated runtime (SSR-AGC-001) and the host-side network controls."
+    - "Must show that no container started through the in-container engine runs with capabilities beyond the SSR-AGC-009 allowlist."   # to be verified; not checked by the tool

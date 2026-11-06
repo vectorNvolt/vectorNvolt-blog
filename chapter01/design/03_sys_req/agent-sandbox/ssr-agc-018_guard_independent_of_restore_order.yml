@@ -1,0 +1,18 @@
+SSR-AGC-018:
+  title: "Keep the guard and the restore independent of each other and of any external watchdog"
+  kind: "structural"
+  usecase_step_ref: "USC-001: step 11 (units installed)"
+
+  statement: "The system shall run the guard and the restore as two separate units whose result does not depend on which of them starts first, and shall rely on no external watchdog for the relaunch or arming of an agent container."
+
+  condition: "From the start of docker.service until it stops."
+
+  interface_points:
+    - "IP-AGENT-LIFECYCLE Lifecycle units"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must show agent-guard.service and agent-restore.service both started after docker.service, with no ordering declared between them."
+    - "Must show the restore removing the agent containers and rebuilding the gate after each docker start, and the guard removing an agent container that is started outside the tools or whose gate does not hold; a container removed by one is simply absent for the other."
+    - "Must show the creation tool waiting for the ready marker of the restore (SFR-AGC-011, exit state NET_NOT_READY), not for the guard."
+    - "Must show no external watchdog: nothing outside agent-host relaunches or re-arms an agent container; a restarted container is removed by the guard (SSR-AGC-014) and a new one is created by the creation tool."

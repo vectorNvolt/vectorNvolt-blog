@@ -1,0 +1,26 @@
+SFR-AGC-006:
+  title: "Create and start the agent container isolated and gated closed"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 4"
+
+  statement: "The system shall create and start one agent container under the isolated execution runtime (`runsc`) with its workspace mounted writable, attached to the agent network at creation and with no network reachability."
+
+  condition: "When the workspace folder for the agent identity is available."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-AGENT-WORKSPACE-FS Agent workspace folder"
+
+  constraints:
+    - "Must request the isolated execution runtime explicitly in the creation request sent to IP-DOCKER-ENGINE, and never fall back to another runtime when the request cannot be met, which SSR-AGC-001 holds."
+    - "Must mount exactly three host paths and no other: the workspace folder of this agent identity read-write at /workspace, the per-agent Claude state directory /var/lib/agent-sandbox/<id>/claude read-write at /home/agent/.claude with the environment variable CLAUDE_CONFIG_DIR set to /home/agent/.claude (so login and conversation history survive recreating the container), and the host file /etc/agent-sandbox/resolv.conf read-only at /etc/resolv.conf (SFR-AGC-024, SFR-NET-020), which SSR-AGC-004 holds."
+    - "Must have prepared the state directory before the creation request: /var/lib/agent-sandbox and /var/lib/agent-sandbox/<id> owned root:root with mode 711, /var/lib/agent-sandbox/<id>/claude owned 1001:1001 with mode 700 (created if missing, kept with its content if present, symlinks refused), and the host DNS file /etc/agent-sandbox/resolv.conf with exactly the two lines `nameserver 1.1.1.1` and `nameserver 9.9.9.9`, owned root:root with mode 644."
+    - "Must create the container attached to agents-net (--network agents-net) and to no other network, never with --network none, and must not attach it to any network later; the agents-net gate (SFR-NET-025) keeps it without reachability, so that no network path exists between creation and the verified arming of SFR-AGC-007, which SSR-AGC-002 holds."
+    - "Must name the container from the agent identity, so a second container for the same identity cannot be created, which SSR-AGC-003 holds."
+    - "Must apply, in the same creation request, the capability allowlist, no-new-privileges, restart policy no, memory, processor and process-count limits and temporary filesystems that SSR-AGC-009, SSR-AGC-010, SSR-AGC-014 and SSR-AGC-012 hold, and no credential, signing-key or keyring mount, which SSR-AGC-013 holds."
+    - "Must start the container with the image's own start command (tini as process 1 running dockerd, an idle init for the agent) and no agent process: the agent is started later only by docker exec -u 1001 (SFR-AGC-031)."
+    - "Must hand a failed creation or start to SFR-AGC-022."
+
+  post_conditions:
+    - "The container has not been started under another runtime, with a third writable host path, on another network, or with any network reachability."
+    - "The container exists and is running only its idle init, with the workspace mounted, ready to be paused (SFR-AGC-012) and armed (SFR-AGC-007)."

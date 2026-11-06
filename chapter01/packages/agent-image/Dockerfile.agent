@@ -1,0 +1,117 @@
+# Dockerfile.agent: agent image content (SSR-IMG-004, SSR-IMG-005, SSR-IMG-017, SSR-IMG-018, SFR-IMG-019).
+# Built by create_agent_image.exe in agent-host with a tar build context (this file and requirements.lock) sent on stdin.
+# Contains no credentials: no ENV secrets, no COPY of home or config directories.
+# Every component is pinned to an exact version and every download is checked against a hash
+# (SSR-IMG-004); README.md "Refreshing the pins" describes how to move the pins forward.
+
+# Base image: Ubuntu 26.04 "resolute", dated tag plus the digest of its multi-arch OCI index.
+FROM ubuntu:resolute-20261024.1@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c
+
+# Ubuntu snapshot service ID: apt sees the archive exactly as it was at this UTC time.
+ARG UBUNTU_SNAPSHOT=20261030T000000Z
+# claude CLI release; the sha512 checksums in the claude CLI step below belong to this version.
+ARG CLAUDE_CODE_VERSION=2.1.314
+
+# Ubuntu packages, exact versions from the snapshot. apt verifies the InRelease signature
+# (ubuntu-archive-keyring) and the SHA256 of every index and .deb it downloads (apt-secure(8)).
+# 1) Bootstrap: the snapshot service is HTTPS-only and the base image has no CA bundle, so
+#    ca-certificates and openssl come first over plain HTTP from the frozen release pocket
+#    "resolute" (unchanged since release), through a temporary source list.
+# 2) apt-get --snapshot: archive.ubuntu.com and security.ubuntu.com (the base image's
+#    ubuntu.sources) are rewritten to https://snapshot.ubuntu.com/ubuntu/<ID>/ for update and
+#    install. apt 3.2 knows both hosts (built-in Acquire::Snapshots::URI::Host entries) and every
+#    source defaults to "Snapshot: enable", so no Snapshot: line is needed (sources.list(5),
+#    apt-get(8) --snapshot). Dependencies come from the same snapshot.
+# 3) snapshot.ubuntu.com is often slow or briefly unavailable. For this RUN only, apt retries each
+#    failed download and gives up on a stalled connection sooner; the file is removed at the end,
+#    so it is not left in the image. --error-on=any makes a failed index download stop the build at
+#    apt-get update, instead of a warning followed by a misleading "version not found" at install
+#    (SFR-IMG-019, SSR-IMG-018).
+RUN set -eu \
+    && export DEBIAN_FRONTEND=noninteractive \
+    && printf '%s\n' 'Acquire::Retries "5";' 'Acquire::http::Timeout "60";' 'Acquire::https::Timeout "60";' \
+        > /etc/apt/apt.conf.d/80build-retries \
+    && mkdir /tmp/apt-bootstrap \
+    && printf '%s\n' 'Types: deb' 'URIs: http://archive.ubuntu.com/ubuntu/' 'Suites: resolute' \
+        'Components: main' 'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
+        > /tmp/apt-bootstrap/bootstrap.sources \
+    && apt-get -o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/tmp/apt-bootstrap update --error-on=any \
+    && apt-get -o Dir::Etc::SourceList=/dev/null -o Dir::Etc::SourceParts=/tmp/apt-bootstrap \
+        install -y --no-install-recommends \
+        ca-certificates=20260223 \
+        openssl=3.5.5-1ubuntu3 \
+    && rm -rf /tmp/apt-bootstrap /var/lib/apt/lists/* \
+    && apt-get update --error-on=any --snapshot "${UBUNTU_SNAPSHOT}" \
+    && apt-get install --snapshot "${UBUNTU_SNAPSHOT}" -y --no-install-recommends \
+        ca-certificates=20260816ubuntu0.26.04.1 \
+        curl=8.18.0-1ubuntu2.8 \
+        docker.io=29.1.3-0ubuntu4.1 \
+        nodejs=22.22.1+dfsg+~cs22.19.15-1ubuntu1 \
+        npm=9.2.0~ds3-1 \
+        openssl=3.5.5-1ubuntu3.7 \
+        python3.14=3.14.4-1ubuntu0.2 \
+        python3.14-venv=3.14.4-1ubuntu0.2 \
+        tini=0.19.0-6 \
+    && rm -rf /var/lib/apt/lists/* /etc/apt/apt.conf.d/80build-retries
+
+# claude CLI: the npm wrapper package and its linux-x64 native package (the real binary, an
+# optional dependency of the wrapper). Both tarballs are downloaded and checked against the
+# sha512 below (hex form of the registry's dist.integrity) before npm sees them; npm then
+# installs from the local files with --offline, so it downloads nothing. The wrapper's
+# postinstall (install.cjs) only links the native binary into bin/claude.exe.
+RUN set -eu \
+    && mkdir /tmp/claude-code && cd /tmp/claude-code \
+    && curl -fsSL --proto '=https' -o claude-code.tgz \
+        "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-${CLAUDE_CODE_VERSION}.tgz" \
+    && curl -fsSL --proto '=https' -o claude-code-linux-x64.tgz \
+        "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-${CLAUDE_CODE_VERSION}.tgz" \
+    && printf '%s  %s\n' \
+        883e7c3d766f342ca4466dd946257fcc93ac7a35c7fc5b4b645b6c16a507c45c41b2d84ec9bfb430835e27c12c35b486f04093b1f8733c867097cc7a3484644a claude-code.tgz \
+        620d1ae66a5d9060a52b4ae014cc5b096656df066daa03a16236c84802eac8be6d7c00c7857f4cb3a131034fde7df81227d31a59f1cc3e7b6bc9e386e8c93a1d claude-code-linux-x64.tgz \
+        | sha512sum -c - \
+    && npm install -g --offline --no-audit --no-fund --cache /tmp/claude-code/npm-cache \
+        ./claude-code-linux-x64.tgz ./claude-code.tgz \
+    && cd / && rm -rf /tmp/claude-code \
+    && test "$(command -v claude)" = /usr/local/bin/claude \
+    && claude --version | grep -F "${CLAUDE_CODE_VERSION}"
+
+# langgraph and its dependencies into a Python 3.14 venv. --require-hashes fails the build on any
+# package or file whose sha256 is not in requirements.lock; --only-binary takes wheels only (no
+# sdist build step).
+COPY requirements.lock /tmp/requirements.lock
+RUN python3.14 -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir --disable-pip-version-check \
+        --require-hashes --only-binary :all: -r /tmp/requirements.lock \
+    && rm /tmp/requirements.lock
+
+ENV PATH="/opt/venv/bin:${PATH}"
+
+# claude CLI sends no non-essential traffic (SSR-IMG-017).
+ENV CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+
+# Non-root user for the agent workload (docker exec -u 1001); uid/gid 1001 matches the owner of the
+# agent workspace folders (USC-002). In the docker group to reach the in-container daemon (USS-005).
+# The base image's own user "ubuntu" holds uid/gid 1000, so 1001 is free (informational: the
+# step does not depend on it, and groupadd/useradd fail the build if 1001 were taken); docker.io
+# creates the system group docker, the getent guard keeps this step correct if it does not.
+# No USER: tini and dockerd run as root (USS-003).
+RUN (getent group docker || groupadd --system docker) \
+    && groupadd --gid 1001 agent \
+    && useradd --uid 1001 --gid 1001 --groups docker --create-home --shell /bin/bash agent
+WORKDIR /workspace
+
+# In-container daemon config (USS-003); not the host daemon.json of agent-host.
+# TODO: storage-driver (overlay2 vs vfs under gVisor) is an open item (USS-005).
+RUN mkdir -p /etc/docker && printf '%s\n' '{' \
+    '  "default-runtime": "runc",' \
+    '  "bridge": "none", "iptables": false, "ip6tables": false,' \
+    '  "hosts": ["unix:///var/run/docker.sock"], "group": "docker",' \
+    '  "data-root": "/var/lib/docker",' \
+    '  "exec-opts": ["native.cgroupdriver=cgroupfs"],' \
+    '  "no-new-privileges": true' \
+    '}' > /etc/docker/daemon.json \
+    && chmod 644 /etc/docker/daemon.json
+
+# tini is PID 1 (root) and starts dockerd as root; settings come from daemon.json only, no flags.
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["dockerd"]

@@ -1,0 +1,20 @@
+SFR-AGC-020:
+  title: "Report the outcome of a removal"
+  kind: "functional"
+  usecase_step_ref: "USC-006: step 8"
+
+  statement: "The system shall report the outcome of a removal to the developer on success."
+
+  condition: "When all removal steps succeeded."
+
+  interface_points:
+    - "IP-CLI-REMOVE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must write the summary line `agent container agent-<agentID> disarmed and removed` when the container was removed, or `no container agent-<agentID>` when none existed, followed by the line `exit_state: <STATE>`, to the standard output at IP-CLI-REMOVE-AGENT-CONTAINER."
+    - "Must write the exit state (REMOVED or NOT_PRESENT) and the workspace and agent state results (kept, purged or absent) to the standard output at IP-CLI-REMOVE-AGENT-CONTAINER and return exit status 0."
+    - "Must write, on every run, one progress line `[n/10] <step name>` to the standard output before each step starts (validate arguments, acquire per-agent lock, check docker engine, locate container, disarm agent network, remove container, verify container removed, handle workspace folder, handle agent state, report result), when the log level AGENT_LOG_LEVEL is INFO (default), DEBUG or empty."
+    - "Must write failures with exit status 1 or 2 as for SFR-AGC-011, naming the failed step on the error output."
+
+  post_conditions:
+    - "The developer holds the exit state and the workspace result."

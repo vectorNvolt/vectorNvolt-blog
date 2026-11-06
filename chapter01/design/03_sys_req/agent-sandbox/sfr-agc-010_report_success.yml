@@ -1,0 +1,20 @@
+SFR-AGC-010:
+  title: "Report successful creation to the developer"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 10"
+
+  statement: "The system shall report successful creation to the developer."
+
+  condition: "When the final state of the agent container has been verified."
+
+  interface_points:
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must write a success report to the standard output at IP-CLI-CREATE-AGENT-CONTAINER, with the fixed text `agent container agent-<agentID> created and running (runtime runsc, network armed)` followed by `workspace: <workspace folder> -> /workspace`, naming the Claude state directory as well. The text is fixed: it is not derived from the verified state."
+    - "Must write, on every run, one progress line `[n/14] <step name>` to the standard output before each step starts (steps: validate agentID, acquire per-agent lock, wait for network ready, check preconditions, prepare workspace folder, prepare Claude state and host resolv.conf, clean leftovers, create and start container, pause container, arm agent network, release container, check resolv.conf, verify final state, report success), when the log level AGENT_LOG_LEVEL is INFO (default), DEBUG or empty; a progress line is not a success report."
+    - "Must return exit status 0 at IP-CLI-CREATE-AGENT-CONTAINER only when the verification of SFR-AGC-009, the arming read-back of SFR-AGC-007, the pause verification of SFR-AGC-012 and the removal of leftovers of SFR-AGC-029 have passed. The report does not start the agent: no agent process runs at container start or in this run, and the agent is started afterwards only through docker exec (SFR-AGC-031)."
+
+  post_conditions:
+    - "No failure has been reported and no non-zero exit status has been returned."
+    - "The developer has the success report and exit status 0 for the created agent container."

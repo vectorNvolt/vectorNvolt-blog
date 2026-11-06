@@ -1,0 +1,24 @@
+SFR-AGC-024:
+  title: "Provide the container's /etc/resolv.conf as a read-only host mount, check it inside the container after the release and contain the container when the check fails"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 4 (mount), step 8 (exception err-13)"
+
+  statement: "The system shall mount the host file /etc/agent-sandbox/resolv.conf read-only at /etc/resolv.conf of the container at creation, shall check after the container's verified release (SFR-AGC-007) inside the container that the file holds the allowed DNS resolvers only, and shall contain the container when the check fails."
+
+  condition: "When the container has been released (unpaused, SFR-AGC-021), which is after the arming of SFR-AGC-007."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Implements SFR-NET-020 of the agent network (allowed resolvers, root-owned file, mode 644); the tool provides the host file and mounts it, and its final verification reads it back."
+    - "Must write the host file /etc/agent-sandbox/resolv.conf before the creation request, with exactly `nameserver 1.1.1.1` then `nameserver 9.9.9.9`, owned root:root with mode 644 (rewritten when its content differs), and mount it read-only at /etc/resolv.conf; the engine then generates no file of its own (its file would name the embedded resolver 127.0.0.11, which the isolated runtime does not serve), and nothing is written inside the container."
+    - "Must check, immediately after the unpause and before the final verification of SFR-AGC-009, by an exec as uid 0 through IP-DOCKER-ENGINE (`docker exec -u 0:0 <container> cat /etc/resolv.conf`), that the file contains `nameserver 1.1.1.1` and `nameserver 9.9.9.9` and does not contain 127.0.0.11."
+    - "Must not use `docker exec` on a paused container (it does not work on one) and must not start any agent work before the success report of SFR-AGC-010 (agent work starts only with the docker exec of SFR-AGC-031, after that report); the exec of this requirement is a fixed command of the creation tool, not agent work (SSR-AGC-011)."
+    - "Must treat a non-zero exit status of the exec, an exec that cannot be run or a content mismatch as a failure: contain the container as SFR-AGC-009 defines (re-pause through IP-DOCKER-ENGINE and verify the paused state; report it as unsafe when it cannot be paused and verified), not remove it, write the failed check to the error output at IP-CLI-CREATE-AGENT-CONTAINER and return exit status 2, which SFR-AGC-011 defines."
+    - "Open: whether the isolated runtime accepts the read-only bind mount over /etc/resolv.conf and whether owner and mode are as required inside the container is not verified and is to be confirmed on a real run. The check of this requirement and the read-back of SFR-NET-020 in the final verification catch a mismatch."
+
+  post_conditions:
+    - "The container's /etc/resolv.conf is a read-only mount of the host file and holds exactly `nameserver 1.1.1.1` then `nameserver 9.9.9.9`, root:root, mode 644, checked inside the container after the arming and the release."
+    - "After a failed check the container is paused, or the developer holds a report that names it as unsafe."

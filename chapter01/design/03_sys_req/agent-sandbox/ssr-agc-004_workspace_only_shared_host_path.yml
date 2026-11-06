@@ -1,0 +1,18 @@
+SSR-AGC-004:
+  title: "Share only the agent workspace between host and container"
+  kind: "structural"
+  usecase_step_ref: "USC-002: steps 3, 4, 9"
+
+  statement: "The system shall share the agent workspace folder and the agent's own Claude state directory as the only host paths that the agent container can write."
+
+  condition: "For every agent container, from its start until it is removed."
+
+  interface_points:
+    - "IP-AGENT-WORKSPACE-FS Agent workspace folder"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must show the workspace folder of the agent identity mounted read-write, inspected on the container at IP-DOCKER-ENGINE."
+    - "Must show the Claude state directory /var/lib/agent-sandbox/<id>/claude of the agent identity mounted read-write at /home/agent/.claude, and no other host path mounted read-write, inspected on the container at IP-DOCKER-ENGINE."
+    - "Must show no other host path mounted into the container than those two and the read-only /etc/resolv.conf (exactly three bind mounts), inspected on the container at IP-DOCKER-ENGINE, which SFR-AGC-006 establishes."
+    - "Must show the Workspace-Agents root, the workspace folders of other agents and the Claude state directories of other agents not reachable from inside the container (the state parents /var/lib/agent-sandbox and /var/lib/agent-sandbox/<id> are root:root mode 711)."

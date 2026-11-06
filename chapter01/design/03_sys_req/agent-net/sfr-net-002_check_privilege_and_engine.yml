@@ -1,0 +1,23 @@
+SFR-NET-002:
+  title: "Check privilege and container engine before creating anything"
+  kind: "functional"
+  usecase_step_ref: "USC-004: step 3, err-2, err-3"
+
+  statement: "The system shall check before creating anything that the network creation tool runs as the administrative user with network-administration rights in the agent host's own network scope and with access to the container engine's control socket, and that the container engine is reachable, and stop with nothing created otherwise."
+
+  condition: "When the creation request has been accepted."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-NET Developer command-line entrypoint"
+
+  constraints:
+    - "Must check the administrative user, the network-administration rights, the access to the control socket and the reachability of the engine at IP-DOCKER-ENGINE before anything is created."
+    - "Must check the access to the control socket at the path in AGENT_NET_DOCKER_SOCKET (default /var/run/docker.sock) and run the engine commands through that same socket; the engine configuration file read by SSR-NET-001 is at AGENT_NET_DAEMON_JSON (default /etc/docker/daemon.json) and the engine process-id file used to detect an engine restart at AGENT_NET_DOCKER_PID_FILE (default /var/run/docker.pid). The three environment variables are the only overrides; a blank value means the default."
+    - "Must write a failure report naming the missing privilege or the unreachable engine to the error output at IP-CLI-CREATE-AGENT-NET when a check fails."
+    - "Must return exit status 1 at IP-CLI-CREATE-AGENT-NET when a check fails."
+    - "Must show nothing created when a check fails."
+
+  post_conditions:
+    - "Nothing has been created when a check failed."
+    - "When all checks held, the run continues with the network checks."

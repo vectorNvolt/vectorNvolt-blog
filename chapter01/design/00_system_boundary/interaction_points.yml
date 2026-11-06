@@ -1,0 +1,762 @@
+# ==============================================================================
+# INTERACTION POINTS (IP) — system boundary catalogue
+# Referenced by use cases via ip_ref / channel (e.g. design/02_use_case/usc-001_*.yml).
+#
+# Provenance: every item is derived from USS-001 / USS-002 unless marked `# proposed`.
+# USS-001 items: IP-CLI-CREATE-AGENT-HOST, IP-DIST-ARTIFACT, IP-WSL-CLI, IP-ROOTFS-PROVIDER.
+# USS-002 items: IP-CLI-CREATE-AGENT-CONTAINER, IP-DOCKER-ENGINE, IP-AGENT-NET,
+#                IP-AGENT-WORKSPACE-FS, IP-RENDERER-CHANNEL, IP-OPERATOR-TERMINAL-OUT,
+#                IP-OPERATOR-TERMINAL-IN.
+# USS-003 items: IP-CLI-CREATE-AGENT-IMAGE, IP-IMAGE-BUILD-CONTEXT, IP-IMAGE-BUILD-STREAM,
+#                IP-IMAGE-CONTENT-SOURCE
+#                (plus engine_check / image_inspect / image_build operations on IP-DOCKER-ENGINE).
+# USS-004 items: IP-CLI-CREATE-AGENT-NET (plus network_inspect / network_list / network_create operations on IP-DOCKER-ENGINE).
+# The renderer channel and operator terminal IPs are additionally derived from the
+# rich-rendering posts (blog posts, source material):
+#   ch03p03_preact-dashboard/chapters/03_agent-dashboard/posts/01-rich-rendering-cli-stream-json/index.md
+#   ch03p03_preact-dashboard/chapters/03_agent-dashboard/posts/02-improve-sec-rich-rendering-if/index.md
+# Container-side prerequisites for the channel are `# proposed` (posts assume, do not assign).
+# `# proposed` = design decision not stated in the user story; needs confirmation
+# (or promotion into the story) before it is treated as a requirement.
+# `# TBD` = undefined in the user story (USS-001 / USS-002) and its source docs.
+# ==============================================================================
+
+interaction_points:
+
+  - ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+    role: "Primary entrypoint for developer invocation and execution outcome reporting"
+    direction: "inbound"
+    type: "cli_entrypoint"
+    boundary: "PowerShell 7.4+ host process -> Go executable (`create_agent_host`)"
+    transport: "Win32 process execution / standard I/O streams"
+    channels:
+      - id: "CHAN-PS-CONSOLE"
+        description: "Command line in, stdout/stderr and exit code out"
+    contract:
+      inputs:
+        args: []                      # USS-001: no parameters defined
+        env_vars:                     # read by packages/agent-host/internal/config/config.go; all optional
+          - name: "AGENT_HOST_INSTALL_DIR"
+            description: "Install directory of the distro on Windows"
+          - name: "AGENT_HOST_TOOLS_DIR"
+            description: "Folder holding the seven Linux tool builds and `endpoints.json` (default: the folder of the executable)"
+          - name: "AGENT_HOST_ROOTFS_URL"
+            description: "Override of the rootfs archive URL (IP-ROOTFS-PROVIDER)"
+          - name: "AGENT_HOST_ROOTFS_SHA256SUMS_URL"
+            description: "Override of the `SHA256SUMS` URL (IP-ROOTFS-PROVIDER); `.gpg` is appended for the signature"
+          - name: "AGENT_HOST_DOWNLOAD_TIMEOUT_SECONDS"
+            description: "Download timeout, default 300"
+          - name: "AGENT_HOST_DOWNLOAD_ATTEMPTS"
+            description: "Download attempts, default 3"
+          - name: "AGENT_HOST_DOWNLOAD_BACKOFF_MS"
+            description: "Backoff between download attempts in milliseconds, default 2000"
+          - name: "AGENT_HOST_GVISOR_KEY_FINGERPRINT"
+            description: "Override of the pinned fingerprint of the gVisor apt signing key"
+          - name: "AGENT_LOG_LEVEL"
+            description: "Log level, default INFO"
+      outputs:
+        stdout:
+          format: "text/plain (human-readable console report)"
+          encoding: "UTF-8"           # proposed
+        stderr:
+          format: "text/plain (diagnostic error traces)"
+          encoding: "UTF-8"           # proposed
+        exit_code:                    # proposed (USS-001 only requires success or failure)
+          type: "integer"
+          values:
+            0: "Success (distro created, provisioned and verified)"
+            1: "Prerequisite error (distro already exists, one of the seven Linux binaries (`create_agent_container`, `remove_agent_container`, `create_agent_net`, `remove_agent_net`, `agent_lifecycle`, `enter_agent`, `refresh_endpoints`) or `endpoints.json` missing (or `endpoints.json` invalid) in the folder the tool is run from, WSL unavailable at `distro_list`, WSL older than 2.4.10 or its version unreadable, rootfs, `SHA256SUMS` or `SHA256SUMS.gpg` not obtainable, signature not good against the pinned key, or archive failed the checksum)"
+            2: "Runtime failure during import, configuration, provisioning, `runsc` registration, binary or lifecycle unit install, enabling or starting, or verification"
+
+  - ip_ref: "IP-DIST-ARTIFACT"
+    role: "Local build artifacts in `dist/`: the three Windows executables `create_agent_host.exe`, `create_agent_image.exe` (USS-003) and `refresh_endpoints.exe`; the seven Linux tools `create_agent_container`, `remove_agent_container` (USS-002, USS-006), `create_agent_net` and `remove_agent_net` (USS-004, USS-007), `agent_lifecycle` (restore and guard), `enter_agent` and `refresh_endpoints`, to be installed into `agent-host`; and the data files `Dockerfile.agent`, `requirements.lock` (USS-003) and `endpoints.json`"
+    direction: "outbound"
+    type: "filesystem"
+    boundary: "Go process -> Windows filesystem (the folder `create_agent_host.exe` is run from, same directory as the executable)"
+    transport: "Win32 file read"
+    channels:
+      - id: "CHAN-FS-DIST"
+        description: "Read of the bytes of each `<name>` in the folder the tool runs from (`create_agent_container`, `remove_agent_container`, `create_agent_net`, `remove_agent_net`, `agent_lifecycle`, `enter_agent`, `refresh_endpoints`) and of `endpoints.json`; SHA-256 of each Linux tool computed as its reference hash"
+    contract:
+      path: "create_agent_container, remove_agent_container, create_agent_net, remove_agent_net, agent_lifecycle, enter_agent, refresh_endpoints and endpoints.json (same directory as the running executable, e.g. `C:\\agent-setup`); `create_agent_image.exe` (Windows, USS-003), `refresh_endpoints.exe`, `Dockerfile.agent` and `requirements.lock` live in the same directory but are neither read nor installed by `create_agent_host`"
+      build: "All Go executables built in `dev-distro` (Go toolchain lives there), cross-compiled with GOOS/GOARCH; nothing built on host Windows. Four modules -> ten binaries into `dist/` at the repo root: `packages/agent-host` -> `create_agent_host.exe` (windows/amd64); `packages/agent-image` -> `create_agent_image.exe` (windows/amd64, USS-003); `packages/agent-net` -> `create_agent_net`, `remove_agent_net`, `refresh_endpoints` (linux/amd64) and `refresh_endpoints.exe` (windows/amd64, from `cmd/refresh_endpoints_win`); `packages/agent-sandbox` -> `create_agent_container`, `remove_agent_container`, `agent_lifecycle`, `enter_agent` (linux/amd64). Together with the data files `Dockerfile.agent`, `requirements.lock` (copied from `packages/agent-image`) and `endpoints.json` (copied from `packages/agent-net`) `dist/` holds thirteen files, all copied to the Windows folder the Windows executables are run from; only the seven Linux builds and `endpoints.json` are read by `create_agent_host`"
+      endpoints_json: "`endpoints.json` (`{\"endpoints\": [\"api.anthropic.com\", \"platform.claude.com\"]}` by default) is the Windows-side source of the model endpoint list. It is never passed into the distro by path: its bytes are sent through `wsl.exe` stdin by `create_agent_host.exe` (seed at creation) and by `refresh_endpoints.exe` (update), the same transport `create_agent_image.exe` uses for `Dockerfile.agent`. The Linux `refresh_endpoints` reads it from stdin, validates it and installs it as `/etc/agent-net/endpoints.json` (root:root, 0644); at most 64 KiB"
+      error_handling:
+        detection: "File missing or unreadable"      # proposed
+        propagation: "Report on IP-CLI-CREATE-AGENT-HOST with exit code 1 before any change"
+
+  - ip_ref: "IP-WSL-CLI"
+    role: "Downstream lifecycle orchestration and in-distro execution via the WSL2 subsystem"
+    direction: "outbound"
+    type: "subprocess_cli"
+    boundary: "Go process -> Windows `wsl.exe`"
+    transport: "Anonymous pipes (stdio) to a child process"
+    channels:
+      - id: "CHAN-WSL-EXEC"
+        description: "wsl.exe invocation: arguments and stdin in, stdout/stderr and exit status out"
+    configuration:
+      env:
+        WSL_UTF8: "1"                 # proposed; forces UTF-8 output instead of UTF-16LE
+    operations:
+      - id: "distro_list"
+        cmd: ["wsl.exe", "-l", "-v"]
+        purpose: "Precheck that `agent-host` is not registered; verify it is listed as version 2"
+      - id: "wsl_version"
+        cmd: ["wsl.exe", "--version"]
+        purpose: "Precheck (USC-001 step 2) that the WSL release is 2.4.10 or newer, before anything is downloaded or imported; older or unreadable = exit 1"
+      - id: "distro_import"
+        cmd: ["wsl.exe", "--import", "agent-host", "<install_dir>", "<rootfs_tarball>", "--version", "2"]
+        purpose: "Create the WSL2 distro from the rootfs tarball"
+      - id: "guest_exec"
+        cmd: ["wsl.exe", "-d", "agent-host", "-u", "<user>", "-e", "<command>"]
+        purpose: "Run a command inside the distro: create `agent-operator` (as root, before the user exists), write `/etc/wsl.conf`, install dependencies, register `runsc` (`runsc install`, `systemctl restart docker`), run verification checks (Docker checks as root: `agent-operator` has neither sudo nor `docker` group membership)"
+        notes: "File content for `/etc/wsl.conf` is delivered on stdin to `/bin/sh -c 't=\"$1.tmp\" && cat > \"$t\" && chown root:root \"$t\" && chmod \"$2\" \"$t\" && mv -f \"$t\" \"$1\"' sh /etc/wsl.conf 644` in the distro, not as an argument. `agent-operator` is created with the pinned UID 1001, identical to the image user in USS-003"
+      - id: "guest_install_stdin"
+        cmd: ["wsl.exe", "-d", "agent-host", "-u", "root", "-e", "/bin/sh", "-c", "t=\"$1.tmp\" && cat > \"$t\" && chown root:root \"$t\" && chmod \"$2\" \"$t\" && mv -f \"$t\" \"$1\"", "sh", "/usr/local/bin/<name>", "755"]
+        stdin: "Bytes of the Windows copy `$bin` of `<name>` (IP-DIST-ARTIFACT), piped by `Get-Content -LiteralPath $bin -AsByteStream -Raw`; `<name>` is `create_agent_container`, `remove_agent_container`, `create_agent_net`, `remove_agent_net`, `agent_lifecycle`, `enter_agent` or `refresh_endpoints`, one call per binary"
+        purpose: "Install each binary as root:root 755; each followed by `guest_exec` `sha256sum` to compare with its reference hash"
+      - id: "guest_seed_endpoints"
+        cmd: ["wsl.exe", "-d", "agent-host", "-u", "root", "-e", "/usr/local/bin/refresh_endpoints"]
+        stdin: "Bytes of `endpoints.json` (IP-DIST-ARTIFACT); also sent by `refresh_endpoints.exe` (same command, `--dry-run` optional) to update the list"
+        purpose: "Seed `/etc/agent-net/endpoints.json` once the tools and units are in place (end of USC-001 step 11): the Linux `refresh_endpoints` validates the bytes and installs the file root:root 0644, then `guest_exec` `stat` checks owner and mode. The file is never passed into the distro by path"
+      - id: "guest_install_units"
+        cmd: ["wsl.exe", "-d", "agent-host", "-u", "root", "-e", "/bin/sh", "-c", "t=\"$1.tmp\" && cat > \"$t\" && chown root:root \"$t\" && chmod \"$2\" \"$t\" && mv -f \"$t\" \"$1\"", "sh", "/etc/systemd/system/<unit>", "644"]
+        stdin: "Unit file text (packages/agent-host/internal/steps/lifecycle_units.go); `<unit>` is `agent-restore.service` or `agent-guard.service`"
+        purpose: "Install the two lifecycle units root:root 644 (USC-001 step 11, SFR-HOST-011), then `systemctl daemon-reload`, `systemctl enable` of `docker.service` and both units and `systemctl start`; verified in USC-001 step 12 (content, owner and mode, enabled state, guard active, restore active (exited))"
+      - id: "distro_terminate"
+        cmd: ["wsl.exe", "--terminate", "agent-host"]
+        purpose: "Stop the distro so `wsl.conf` takes effect; it restarts on the next command"
+    contract:
+      error_handling:
+        detection: "Non-zero child process exit code"   # proposed; stderr is not used as failure signal
+        propagation: "Capture stderr, include in the failure report on IP-CLI-CREATE-AGENT-HOST"
+      rollback: "None: failure is reported and the run stops; distro_terminate is NOT used for cleanup"
+
+  - ip_ref: "IP-ROOTFS-PROVIDER"
+    role: "Upstream artifact source for the Ubuntu 26.04 base filesystem tarball"
+    direction: "outbound"
+    type: "http_client"
+    boundary: "Go process -> remote rootfs HTTPS source"
+    transport: "HTTPS"
+    channels:
+      - id: "CHAN-HTTPS"
+        description: "HTTP GET requests for the tarball, the `SHA256SUMS` file next to it and its detached signature `SHA256SUMS.gpg`"
+    contract:
+      request:
+        method: "GET"
+        url: "https://releases.ubuntu.com/26.04.1/ubuntu-26.04.1-wsl-amd64.wsl"   # as used by packages/agent-host (AGENT_HOST_ROOTFS_URL default)
+        url_overrides: "`AGENT_HOST_ROOTFS_URL` replaces the archive URL; `AGENT_HOST_ROOTFS_SHA256SUMS_URL` replaces the `SHA256SUMS` URL (default: `SHA256SUMS` in the same directory as the archive URL); the signature URL is always the `SHA256SUMS` URL plus `.gpg`"
+        headers:                      # proposed
+          User-Agent: "create-agent-host/1.0"
+        timeout_seconds: 300          # proposed
+      response:
+        status: 200
+        body: "Ubuntu 26.04 WSL image (.wsl file, gzip-compressed tar)"
+      integrity:
+        validation: "`SHA256SUMS` is authenticated first: its detached signature `SHA256SUMS.gpg` must be good against the pinned Ubuntu CD image signing key (fingerprint 843938DF228D22F7B3742BC0D94AA3F0EFE21092, embedded in the tool; pure-Go OpenPGP, no `gpg` binary); then the SHA-256 of the tarball is checked against the `SHA256SUMS` entry, before the tarball is passed to wsl.exe (SFR-HOST-003)"
+      error_handling:                 # proposed
+        retry_policy: "3 attempts with exponential backoff on HTTP 5xx or connection reset"
+
+  # ---------------------------------------------------------------------------
+  # USS-002 — create_agent_container
+  # Note: IP-WSL-CLI is NOT reused (it is issued by `create_agent_host`). The
+  # Developer invokes USS-002 from host Windows with
+  # `wsl.exe -d agent-host -u root -e create_agent_container <agentID>`; the tool
+  # runs as root inside `agent-host`.
+  # ---------------------------------------------------------------------------
+
+  - ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+    role: "Primary entrypoint for developer invocation and execution outcome reporting"
+    direction: "inbound"
+    type: "cli_entrypoint"
+    boundary: "Developer on host Windows -> `wsl.exe -d agent-host -u root -e` -> Go executable (`create_agent_container`) in `agent-host`"
+    transport: "POSIX process execution / standard I/O streams (relayed by `wsl.exe`)"
+    privilege: "root (Docker socket and host-side network controls); `agent-operator` needs neither sudo nor `docker` group membership"
+    channels:
+      - id: "CHAN-SHELL-CONSOLE"
+        description: "Command line in, stdout/stderr and exit code out (no prompt; stdin is not read)"
+    contract:
+      inputs:
+        args:
+          - name: "agentID"
+            required: true
+            description: "Identifier of the agent; names the container, workspace folder and network attachment"
+            allowed_values: "^[a-z][a-z0-9-]{0,30}$"   # container name is `agent-<agentID>`
+        env_vars:                         # read by packages/agent-sandbox/internal/config/config.go; all optional
+          - name: "AGENT_SANDBOX_WORKSPACE_ROOT"
+            description: "Override of the `Workspace-Agents` root"
+          - name: "AGENT_SANDBOX_ARM_BIN"
+            description: "Override of the path of `create_agent_net` called for arm, check-gate, disarm, released and evict"
+          - name: "AGENT_SANDBOX_RUNTIME_DIR"
+            description: "Override of `/run/agent-sandbox` (ready marker, per-agent locks)"
+          - name: "AGENT_SANDBOX_STATE_ROOT"
+            description: "Override of `/var/lib/agent-sandbox` (per-agent Claude state)"
+          - name: "AGENT_SANDBOX_HOST_RESOLV"
+            description: "Override of the host DNS file `/etc/agent-sandbox/resolv.conf`"
+          - name: "AGENT_SANDBOX_READY_TIMEOUT"
+            description: "Wait for the ready marker, default 60s"
+          - name: "AGENT_LOG_LEVEL"
+            description: "Log level, default INFO"
+      outputs:
+        stdout:
+          format: "text/plain (human-readable console report)"
+          encoding: "UTF-8"           # proposed
+        stderr:
+          format: "text/plain (diagnostic error traces)"
+          encoding: "UTF-8"           # proposed
+        exit_code:                    # defined by SFR-AGC-011
+          type: "integer"
+          values:
+            0: "Success (container created, paused and the pause verified, port armed, verified and read back, container unpaused and verified)"
+            1: "Prerequisite or usage error (missing/invalid agentID, per-agent lock held, runsc runtime not registered, Docker unavailable, container for agentID already exists, `agents-net` missing, image missing, `Workspace-Agents` root missing, not a directory or not owned by `agent-operator`); nothing created, no side effect"
+            2: "Runtime failure during workspace creation, container creation or start, pause (not verified), network arming or verification, unpause or final verification (after an arming failure the controls are disarmed first and the container, which was still paused, is then unpaused and removed; states `REMOVED`, `NOT_CREATED`, `CREATED_CLEANUP_FAILED`, `REMOVE_FAILED`, `DISARM_FAILED`, `CONTAINED`, `UNSAFE`; after a failed final verification the container is re-paused or reported as unsafe; workspace kept)"
+            3: "`NET_NOT_READY`: `/run/agent-sandbox/ready` missing or not holding dockerd's current MainPID after 60 s; nothing touched (check `systemctl status agent-restore.service`)"
+
+  - ip_ref: "IP-DOCKER-ENGINE"
+    role: "Downstream container lifecycle via the Docker engine in `agent-host`, using the gVisor `runsc` runtime (create, start, pause, unpause, inspect, remove); also the engine that builds the agent image (USS-003: engine_check, image_inspect, image_build). `agent-host` is the only Docker engine in the WSL2 VM"
+    direction: "outbound"
+    type: "subprocess_cli"                # proposed; Docker CLI vs. Engine API (Go SDK) not specified
+    boundary: "Go process -> Docker engine (`docker` CLI or Engine API) in `agent-host`; USS-003: Go process -> `wsl.exe -d agent-host -u root -e docker ...` -> Docker engine in `agent-host`"
+    transport: "Child process stdio or local Docker socket"   # proposed
+    channels:
+      - id: "CHAN-DOCKER-EXEC"
+        description: "Docker command/API request in, result and exit status out"
+    operations:
+      - id: "runtime_check"
+        cmd: "docker info --format '{{json .Runtimes}}'"
+        purpose: "Precondition check that the `runsc` runtime is registered; report mismatch, never modify `daemon.json`"
+      - id: "precondition_check"          # proposed
+        cmd: "docker network inspect agents-net; docker image inspect agent-image:latest; docker container inspect agent-<agentID>"
+        purpose: "Precondition checks: `agents-net` exists, image exists locally, no container `agent-<agentID>` exists; report and stop, never create or pull"
+      - id: "container_create"
+        cmd: "docker create --runtime=runsc --network agents-net --restart no --cap-drop ALL --cap-add SYS_ADMIN --cap-add SYS_CHROOT --cap-add MKNOD --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER --cap-add FSETID --cap-add SETUID --cap-add SETGID --cap-add SETPCAP --cap-add SETFCAP --cap-add KILL --cap-add AUDIT_WRITE --cap-add NET_BIND_SERVICE --cap-add SYS_RESOURCE --security-opt no-new-privileges --memory 4g --cpus 2 --pids-limit 512 --tmpfs /tmp:rw,noexec,nosuid,size=512m --tmpfs /var/lib/docker:rw,nosuid,size=2g --name agent-<agentID> -v /home/agent-operator/Workspace-Agents/<agentID>:/workspace:rw -v /var/lib/agent-sandbox/<agentID>/claude:/home/agent/.claude:rw -e CLAUDE_CONFIG_DIR=/home/agent/.claude -v /etc/agent-sandbox/resolv.conf:/etc/resolv.conf:ro agent-image:latest"   # followed by `docker start agent-<agentID>`; the container's `/etc/resolv.conf` is a read-only mount of the host file, checked inside the container after the unpause (`resolv_conf_check_root`, SFR-AGC-024, SFR-NET-020)
+        purpose: "Create the container with the `runsc` runtime, `--restart no`, closed capability allowlist, `no-new-privileges`, bounded memory/CPU/PIDs, size-bounded `tmpfs` mounts and exactly three host mounts (the per-agent workspace and the per-agent Claude state read-write, the host DNS file read-only), with no credential, signing-key or keyring mount; created attached to `agents-net` (closed by the agents-net gate, USS-004) and started, then paused (`container_pause`) before arming"
+        notes: "Flag values: capability allowlist SSR-AGC-009, memory/CPU/PIDs/tmpfs SSR-AGC-012 (PID limit and tmpfs sizing are design values, not set by USS-002). Created WITHOUT `--init` and without `--user`: the image's `tini` entrypoint is the init and runs as PID 1 (root), starting the in-container `dockerd` as root (USS-003)"
+      - id: "container_pause"             # proposed operation name
+        cmd: "docker pause agent-<agentID>; docker inspect --format '{{.State.Paused}}' agent-<agentID>"
+        purpose: "Hold the started container (attached to `agents-net` but closed by the gate) before `create_agent_net arm` applies the host-side controls, so it cannot run agent work before the controls are armed; the container stays paused through the arming and is unpaused only afterwards (order: create attached, start, pause, arm, unpause; USS-002 step 5, USS-004). The tool continues only when `State.Paused` reads `true` (SFR-AGC-012)"
+      - id: "container_unpause"           # proposed operation name
+        cmd: "docker unpause agent-<agentID>"
+        purpose: "Unfreeze the container only after `create_agent_net arm` has released the port and verified it and `create_agent_net check-gate` has passed while the container was still paused; the agent's first exec happens only after this"
+      - id: "agent_enter"                 # proposed operation name
+        cmd: "docker exec -it -u 1001 agent-<agentID> <cmd>    (`-i` instead of `-it` when stdin is not a terminal; `<cmd>` is what follows `--`, else `claude --continue` when a previous conversation exists, else `claude`)"
+        purpose: "Start the agent work (`enter_agent <agentID> [-- <cmd> ...]`, runs as root in `agent-host`): the only way an agent process runs, after the create path (pause, arm, check-gate, unpause) or on a running container; no agent process runs at container start (PID 1 is tini running dockerd). `enter_agent` first reads the state of `agent-<id>`: `running` -> `create_agent_net check-gate agent-<id>` (on failure the report and a hint go to stderr, the exit code of `check-gate` is returned and a running container is never removed); absent -> create sequence; any other state -> remove sequence (no purge) then create sequence; then the process is replaced (`syscall.Exec`) by the `docker exec` above. The explicit `-u 1001` is required (uid only, SSR-AGC-011), as an exec without `-u` runs as uid 0"
+        notes: "Exit 1 `NOT_ENTERED` for usage or not root, 1 or 2 `NOT_ENTERED` when `check-gate` fails (its exit code is returned), 2 `NOT_ENTERED` when the state or gate check cannot run, docker is missing or the exec fails; otherwise the exit code of the exec'd command"
+      - id: "resolv_conf_check_root"     # proposed operation name (replaces the earlier `resolv_conf_write`)
+        cmd: "docker exec -u 0:0 agent-<agentID> cat /etc/resolv.conf"
+        purpose: "Check the container's `/etc/resolv.conf` (a read-only mount of the host file `/etc/agent-sandbox/resolv.conf`) immediately after the unpause (USC-002 step 8, SFR-AGC-024): it must show `nameserver 1.1.1.1` and `nameserver 9.9.9.9` and not `127.0.0.11`. Nothing is written in the container. Done after the unpause because `docker exec` does not work on a paused container. A non-zero exit status or a mismatch is contained as err-13 (re-pause, exit 2)"
+        notes: "Open (confirm on a real run): whether `runsc` accepts the read-only bind mount over `/etc/resolv.conf` and the read-write `.claude` mount, and whether owner and mode are as required"
+      - id: "container_inspect"
+        cmd: "docker container inspect --format '{{json .}}' agent-<agentID>"       # the tool parses the fields it checks from the JSON
+        purpose: "Verify the container exists, is running and not paused, uses the `runsc` runtime, has no user set (the init runs as root), drops ALL capabilities and adds exactly the allowlist, has `no-new-privileges`, the memory, CPU and PID limits, restart policy `no`, the two `tmpfs` mounts, `CLAUDE_CONFIG_DIR`, exactly three bind mounts (the workspace at `/workspace` read-write, the Claude state at `/home/agent/.claude` read-write, the host DNS file at `/etc/resolv.conf` read-only), and attachment to `agents-net` only (SFR-AGC-009)"
+      - id: "agent_user_check"            # proposed operation name
+        cmd: "docker exec -u 1001 agent-<agentID> id"
+        purpose: "Verify that an exec with the explicit agent user runs as uid 1001 and gid 1001 (SSR-AGC-011); every launcher of agent work uses `-u 1001` (uid only: an explicit group drops the supplementary group `docker`), as an exec without `-u` runs as uid 0"
+      - id: "agent_groups_check"          # proposed operation name
+        cmd: "docker exec -u 1001 agent-<agentID> id -nG"
+        purpose: "Verify that the groups of the agent user include the in-container group `docker` (SSR-AGC-011, group provided by the image, SSR-IMG-017)"
+      - id: "resolv_conf_check"          # proposed operation name
+        cmd: "docker exec -u 1001 agent-<agentID> cat /etc/resolv.conf; docker exec -u 1001 agent-<agentID> stat -c '%U:%G %a' /etc/resolv.conf"
+        purpose: "Verify, after the `resolv_conf_check_root` that follows the unpause, that the container's `/etc/resolv.conf` (read-only mount of the host file) contains exactly `nameserver 1.1.1.1` then `nameserver 9.9.9.9`, is `root:root` mode 644 and is not writable by uid 1001 (SFR-NET-020)"
+        notes: "The read-only mount keeps Docker from generating its own `/etc/resolv.conf` (embedded DNS `127.0.0.11`). Still to confirm on a real run that `runsc` accepts the mount; this check reveals a mismatch (err-12)"
+      - id: "container_remove"
+        cmd: "docker inspect -f '{{.State.Paused}}' agent-<agentID>; docker unpause agent-<agentID> (only when paused); docker rm -f agent-<agentID>"
+        purpose: "Remove one agent container: the container created by this run after a creation, start or pause failure, or after an arming or verification failure once `create_agent_net disarm` has exited 0 (USS-002); one agent container after its port was disarmed (USC-006); and each agent container attached to `agents-net` in the cascade of `remove_agent_net` (USC-007, after it was disarmed). A container still paused is unpaused first (after the disarm), because `runsc` cannot kill a paused sandbox; a failed unpause fails the removal without `rm`. The workspace folder is not touched here"
+        notes: "Outcomes on the create path: `REMOVED`; `CREATED_CLEANUP_FAILED` when the removal after a failed `container_start` fails (container named on stderr, to be removed manually; USC-002 err-9); `REMOVE_FAILED` when the removal after a failed pause or after the disarm fails (USC-002 err-8, err-10; SFR-AGC-022); `DISARM_FAILED` when the disarm fails and nothing is removed (err-8). `container_create` failing leaves `NOT_CREATED` with no cleanup. On `remove_agent_container`: `REMOVE_FAILED` when the container remains after `rm -f` (USC-006)"
+      - id: "engine_check"                # USS-003, proposed
+        cmd: "wsl.exe -d agent-host -u root -e docker version"
+        purpose: "Prerequisite check before any build that `agent-host` and its Docker engine are reachable; report and stop (exit 1)"
+        notes: "With the engine proven up, a later non-zero `image_inspect` unambiguously means the image is absent. No other distro is checked: `agent-host` is the only Docker engine"
+      - id: "image_build"                 # USS-003, proposed
+        cmd: "wsl.exe -d agent-host -u root -e docker build -f Dockerfile.agent -t agent-image:<tag> -"
+        purpose: "Build the agent image in the Docker engine of `agent-host` from the build inputs streamed on stdin (IP-IMAGE-BUILD-STREAM); the image carries the reference `agent-image:<tag>` (default `agent-image:latest`)"
+        notes: "Invoked from `create_agent_image.exe` on Windows via `os/exec`, after the overwrite confirmation when the tag already exists. The base image and packages are pulled during the build, so `agent-host` needs internet access"
+      - id: "image_inspect"               # USS-003, proposed
+        cmd: "wsl.exe -d agent-host -u root -e docker image inspect agent-image:<tag>"
+        purpose: "Existence check before the build (decides the overwrite prompt; non-zero exit = image absent, as `engine_check` already proved the engine reachable) and confirmation after `image_build` that `agent-image:<tag>` exists"
+        notes: "No content checks beyond the credential-metadata check (`image_credential_check`) are performed by this use case; the tool starts no container (the ephemeral containers of `docker build` for the `RUN` steps are build-internal, SSR-IMG-012)"
+      - id: "image_credential_check"      # USS-003, proposed
+        cmd: "wsl.exe -d agent-host -u root -e docker image inspect --format '{{json .Config.Env}} {{json .Config.Labels}}' agent-image:<tag>; wsl.exe -d agent-host -u root -e docker history --no-trunc --format '{{.CreatedBy}}' agent-image:<tag>"
+        purpose: "After `image_inspect` confirms the image, inspect its metadata without starting a container: fail (exit 2, UNVERIFIED) if an env var name contains TOKEN, SECRET, PASSWORD, PASSWD, API_KEY, APIKEY, CREDENTIAL or PRIVATE_KEY (case-insensitive), or an env value, label value or history line contains `ghp_`, `gho_`, `ghs_`, `github_pat_`, `sk-ant-`, `AKIA` or `-----BEGIN` ... `PRIVATE KEY` (SSR-IMG-005, SFR-IMG-016)"
+        notes: "The failure report names the offending env var or history step and never prints the matched value"
+      - id: "network_inspect"             # USS-004, proposed
+        cmd: "docker network inspect agents-net"
+        purpose: "Precondition: the network must NOT exist (not-found result); after creation, verify it exists, driver bridge, subnet 172.30.0.0/24"
+      - id: "network_list"                # USS-004, proposed
+        cmd: "docker network ls (plus inspect of the listed networks' subnets)"
+        purpose: "Require that 172.30.0.0/24 overlaps no existing Docker network subnet; report, never repair"
+      - id: "network_create"              # USS-004, proposed
+        cmd: "docker network create --driver bridge --subnet 172.30.0.0/24 agents-net"
+        purpose: "Create the shared agent network"
+        notes: "Further bridge options TBD. No rollback on failure"
+      - id: "network_containers"          # USC-007, proposed
+        cmd: "docker ps -a --filter network=agents-net --format '{{.Names}}'"
+        purpose: "List the containers attached to `agents-net`, stopped ones included; `remove_agent_net` refuses when one is not named `agent-<id>`"
+      - id: "network_remove"              # USC-007, proposed
+        cmd: "docker network rm agents-net"
+        purpose: "Remove the shared agent network after its containers, the leftover `as_port_*` netdev tables (USC-007 step 6), the tagged rules including the gate rule (step 7) and the gate table (step 8) are gone (step 9)"
+        notes: "No rollback on failure; a repeated run finishes the job"
+    contract:
+      preconditions:
+        - "Docker `daemon.json` already registers `runsc` (configured per USS-001/host doc; not modified by this tool)"
+        - "Agent image available to Docker (`agent-image:latest`, provided by USS-003)"
+      error_handling:
+        detection: "Non-zero exit code / API error"      # proposed
+        propagation: "Capture error output, include in the failure report on IP-CLI-CREATE-AGENT-CONTAINER"
+      rollback: "After a creation, start or pause failure, `create_agent_container` removes the container it created (`container_remove`, exit 2). After an arming or verification failure it first disarms the host-side controls (`create_agent_net disarm`, `port_disarm`, exit 0 required) and only then removes the container, which was still paused, unpausing it just before `rm -f` (exit 2, `REMOVED`, or `REMOVE_FAILED` when the removal fails); when the disarm fails nothing is removed and the container is left paused (`DISARM_FAILED`). After a failed unpause or final verification the container is not removed but re-paused (or reported as unsafe; exit 2). The workspace folder and resources not created by the run are kept. No other rollback. Recovery is remove (`remove_agent_container`) and recreate"
+
+  - ip_ref: "IP-AGENT-NET"
+    role: "Network provisioning for the agent container: the agents-net gate that keeps every port closed, and host-side arming (the container is attached to the shared agent network at creation, by `docker create --network agents-net`)"
+    direction: "outbound"
+    type: "host_network_control"          # proposed
+    boundary: "Go process -> host Docker bridge network / host network namespace in `agent-host`"
+    transport: "The Agent network control run as root in `agent-host` that calls `nft` (the `netdev` tables `agents_gate` and per-port `as_port_<id>`; the `agent-host` kernel has no nftables bridge family), `iptables`, `ip` and `bridge`; the control is the subcommand `create_agent_net arm <container>`, called by `create_agent_container` while the container is paused; the container's veth is found via `docker inspect` (PID) and the peer ifindex of the container's interface, read by the host as root with `nsenter -t <pid> -n ip` (no code of the container runs), mapped to the host veth and cross-checked against the agent MAC, the container IP and the `agents-net` bridge as master (SSR-NET-002)"
+    channels:
+      - id: "CHAN-AGENT-NET"
+        description: "Container attached to the shared agent network (`agents-net`)"
+    operations:                           # USC-004 step 4 and alt-2, USC-006 and USC-007, proposed; the arming operations are described in `contract` below
+      - id: "gate_install"
+        cmd: "nft -f - (table netdev agents_gate: ingress and egress chains bound to the bridge device `br-<id>`, policy drop, ingress accept `ether saddr @released` with the port mark condition and mark clearing (`meta mark and 0x10000000 == 0x10000000 meta mark set meta mark and 0xefffffff`), egress accept `ether daddr @released`, set released); iptables -I DOCKER-USER -i <br> -o <br> -m physdev --physdev-is-bridged -m comment --comment agent-net:gate -j DROP"
+        purpose: "Install the agents-net gate when `agents-net` is created (USC-004 step 4, SFR-NET-025): no frame to or from a port passes until the container MAC is in `released`, and no frame passes between two unarmed ports. Requires `bridge-nf-call-iptables` = 1, which is read and required and never set; the nftables bridge family (unsupported by the kernel) and `ebtables` are not used"
+        notes: "Verified on the real host (2026-10-31): netdev hooks on the bridge device work, `br_netfilter` is on, the iptables `physdev` match works. A gate without the mark condition (SFR-NET-034, SSR-NET-006) is a mismatch and must be recreated too. A network created before the gate existed has no gate: `arm` refuses it (`GATED_UNARMED`, exit 1); recreate it (`remove_agent_net`, then `create_agent_net`), which `agent_lifecycle restore` does at every dockerd start (IP-AGENT-LIFECYCLE)"
+      - id: "gate_release"
+        cmd: "nft add element netdev agents_gate released { <agent MAC> comment \"<container name>\" } (in the same atomic nft -f as the per-port accept rules, whose ingress rules set the mark `meta mark set meta mark or 0x10000000`)"
+        purpose: "Open the gate for one verified container (release step of `arm`, SFR-NET-010, SFR-NET-029, SFR-NET-034): the element carries the container name as its comment; removed again by a failure after the release"
+      - id: "gate_unrelease"
+        cmd: "nft delete element netdev agents_gate released { <agent MAC> }"
+        purpose: "Close the gate for one container: first step of `disarm` (SFR-NET-012, SFR-NET-027), for every element whose comment is the container name or whose MAC was collected (also the removal of the agent MAC when `arm` loads the closed port table); an absent entry is not an error. Only set elements are deleted, never the table `agents_gate`, its chains or the rule `agent-net:gate`"
+      - id: "gate_list"                   # proposed operation name
+        cmd: "create_agent_net released   (reads `nft -j list set netdev agents_gate released`)"
+        purpose: "Read-only listing of the elements of `released` for the guard (SFR-NET-030): one stdout line per element, `<mac> <comment>` (comment = container name, empty for an untagged element, so the line is `<mac> `); step and debug lines go to stderr. Lists nothing and succeeds when the gate table is absent. Exit 0 read (or absent), 1 not checked (`NOT_CHECKED`), 2 set unreadable (`GATE_INCONSISTENT`)"
+      - id: "gate_evict"                  # proposed operation name
+        cmd: "create_agent_net evict <mac>   (nft delete element netdev agents_gate released { <mac> })"
+        purpose: "Remove exactly one element of `released` by MAC, for an element without a container name or whose container is gone (SFR-NET-031); an element not in the set is no error; the set is read again and the run fails when the MAC is still in it. Exit 0 evicted or absent, 1 usage or prerequisite (`NOT_EVICTED`), 2 not deleted or still there (`EVICT_INCOMPLETE`; run it again)"
+      - id: "gate_remove"
+        cmd: "nft delete table netdev agents_gate; iptables -D DOCKER-USER <rule number> (comment agent-net:gate)"
+        purpose: "Delete the gate when `remove_agent_net` runs, in this order: the gate rule `agent-net:gate` with the other tagged rules after the leftover port tables (USC-007 steps 6 and 7), then the `agents_gate` table (step 8), then the network (step 9) (SFR-NET-026)"
+        notes: "A table or rule that is already absent is not an error"
+      - id: "port_disarm"
+        cmd: "create_agent_net disarm <container>"
+        purpose: "Name-keyed removal (SFR-NET-027) of the controls of one container's port, whether the container is running, stopped or gone: its elements in the gate set `released` (comment = container name, or a collected MAC), its `as_port_<id>` netdev table, its `agent-net:<container>` iptables rules, its neighbour entries and its static FDB entries (in this order); isolation, `locked` and learning off stay on the veth; the `agents_gate` table, its chains and the rule `agent-net:gate` are never touched. Succeeds with `nothing to disarm` when none exist (a missing container or network is not a failure). Refused with exit 1 when a port table is bound to the live veth of a different running container. Exit 0 disarmed or nothing to disarm, 1 usage or prerequisite (`NOT_DISARMED`), 2 runtime (`DISARM_INCOMPLETE`) (USS-007)"
+        notes: "Called by `remove_agent_container` (USS-006), by `create_agent_container` before `docker create` and after an arming failure, before it removes the container (USS-002 err-8), by `arm` as its clean slate (step 6, SFR-NET-028), by the guard of `agent_lifecycle` (on `die`, on its error path and for names whose container is gone); the same code runs per agent container inside `remove_agent_net` (USS-007)"
+      - id: "port_check"
+        cmd: "create_agent_net check-gate <container>"
+        purpose: "Read-only per-port check of a container's host-side controls and of the gate, including whether its MAC is in `released`, the port mark of the accept rules and of the gate (SFR-NET-034), and the confinement of the container (control `container confinement`: restart policy exactly `no`, attached to `agents-net` only, running; not required unpaused; SFR-NET-033); 12 control lines plus the summary line (SFR-NET-021). Called by `create_agent_container` after `arm` exits 0, before the unpause (USS-002 step 6), by `enter_agent` on a running container and by the guard of `agent_lifecycle`. Exit 0 every control ok (port `closed` or `released`), 1 not checked (`NOT_CHECKED`), 2 control missing or mismatched or read-back failed (`GATE_INCONSISTENT`)"
+      - id: "nft_delete_table"
+        cmd: "nft delete table netdev as_port_<id>"
+        purpose: "Delete one port's netdev table (disarm), or any leftover `as_port_*` table (`remove_agent_net`); other nftables tables are never touched"
+        notes: "A table that is already absent is not an error"
+      - id: "iptables_delete"
+        cmd: "iptables -D DOCKER-USER <rule number>; iptables -D INPUT <rule number>"
+        purpose: "Delete the rules whose comment is exactly `agent-net:<container>` (disarm) or starts `agent-net:` (`remove_agent_net`), found in `iptables -S <chain>`; rules without that comment are never touched"
+      - id: "fdb_delete"
+        cmd: "bridge fdb del <mac> dev <veth> master static"
+        purpose: "Clear the static forwarding entry of a disarmed container's veth, only when the veth still exists; isolation, `locked` and learning off are left as they are"
+    contract:
+      sequence: "(`create_agent_net` installs the gate with `agents-net`) -> create with `--network agents-net` (closed by the gate) -> start -> pause (caller) -> `arm` (13 steps) verifies container exists, running, paused, attached to `agents-net` only, runtime `runsc`, restart policy exactly `no`, and the gate present (else `GATED_UNARMED`, exit 1) -> clean slate (name-keyed disarm of the same name, SFR-NET-028; failure = control `clean slate`, exit 2) -> load per-port table (policy drop, no accept rules) -> set isolated, locked, learning off, static FDB entry, permanent neighbour entry and iptables rules -> verify -> release (agent MAC into `released` with the container name as comment, and the accept rules that set the port mark, in one atomic `nft -f`) -> verify again -> read back with `check-gate` (caller, while still paused) -> unpause (caller) -> agent work only by `docker exec -u 1001` (`enter_agent`, IP-DOCKER-ENGINE `agent_enter`); a restarted container is removed by the guard, not re-armed"   # USS-002, USS-004; the Agent network control applies and verifies, the caller reads back via IP-AGENT-NET (`port_check`) before the unpause
+      controls: "The network-wide gate (`agents_gate` table, set `released`, `agent-net:gate` rule in `DOCKER-USER`), then six layers per agent port (USS-004): per-port `netdev` table `as_port_<id>` (policy drop), source identity (MAC/IP/ARP), destination limit (bridge MAC only; IPv6 dropped; host holds a permanent neighbour entry for the agent, no ARP reply rule from the container), kernel MAC lock (`locked on`, learning off, static FDB entry), bridge port isolation, iptables rules in `DOCKER-USER` and `INPUT` tagged `agent-net:<container>`; detail in the SFR-NET-* requirements (USS-004)"
+      network_creation: "USS-004 (this tool consumes the network, does not create it; creation is IP-CLI-CREATE-AGENT-NET): `docker network create` for `agents-net`, fixed subnet 172.30.0.0/24; single agent group, no network namespace suffix"
+      egress_policy: "Default-deny; two explicit allow rules, everything else dropped: (a) DNS: UDP and TCP port 53 to `1.1.1.1` (primary) and `9.9.9.9` (secondary) only, the two `nameserver` lines of the container's root-owned `/etc/resolv.conf` (SFR-NET-020); (b) endpoints: TCP port 443 to `api.anthropic.com` (model API) and `platform.claude.com` (OAuth token exchange, refresh and revocation) only; names from the root-owned `/etc/agent-net/endpoints.json` (default those two; seeded by `create_agent_host.exe` and updated by `refresh_endpoints.exe` from the Windows `endpoints.json`, both as bytes over `wsl.exe` stdin, see IP-DIST-ARTIFACT and IP-WSL-CLI `guest_seed_endpoints`), resolved host-side at arm time (A records only) to IPs that can change (currently `160.79.104.10`), pinned until the next arm or a manual `refresh_endpoints.exe` run; IPv6 frames are dropped at the port. `check-gate` reports the DNS rule and the endpoint rule as distinct controls. Host-addressed traffic from agent ports is default-deny in `INPUT`. Per-profile allowlists are out of scope"
+      persistence: "The gate, tables and rules do not survive a dockerd or WSL restart (a network without its gate is refused by `arm`); `agent_lifecycle restore` (IP-AGENT-LIFECYCLE) removes the old agent containers and rebuilds the network and gate after every dockerd start; container removal does not remove the per-port nft and fdb state, only the disarm does (SSR-AGC-016); never `docker start` an old agent container: `agent_lifecycle guard` removes it after a successful disarm (and disarms on `die`), remove it (USS-006) and recreate it. Per-port controls stay bound to the veth (no nft bridge family), so a restarted container is replaced, never repaired"
+      error_handling:
+        failure_mode: "Fail-closed: if any apply or verify step fails, the failure is reported to the caller, which first disarms the port (`port_disarm`, exit 0 required) and then removes the container, which was still paused (it never ran agent work), unpausing it just before `rm -f`; when the disarm fails the container is left paused and nothing is removed"
+        propagation: "Report failure on IP-CLI-CREATE-AGENT-CONTAINER naming the failed control, exit 2 (IP-DOCKER-ENGINE `container_remove` only after the disarm)"
+        precondition_refusal: "`arm` verifies with `docker inspect` that the container exists, is running, is paused, is attached to `agents-net` only, has runtime `runsc` and has restart policy exactly `no` (an empty policy is refused), and that `agents-net` and its gate exist (a gate without the port mark is a mismatch) (including `bridge-nf-call-iptables` equal to 1; any other value or an unreadable file refuses), before loading any control; otherwise it changes nothing and reports `GATED_UNARMED`, exit 1 (USS-004 alt-1, err-9)"
+      privilege: "Requires `CAP_NET_ADMIN` in the host network namespace of `agent-host`"   # USS-004
+
+  # ---------------------------------------------------------------------------
+  # USS-004 — create_agent_net
+  # The Developer invokes USS-004 from host Windows with
+  # `wsl.exe -d agent-host -u root -e create_agent_net`; the tool runs as root
+  # inside `agent-host`. The form `create_agent_net arm <container>` is the
+  # internal call from create_agent_container (see IP-AGENT-NET).
+  # ---------------------------------------------------------------------------
+
+  - ip_ref: "IP-CLI-CREATE-AGENT-NET"
+    role: "Primary entrypoint for developer invocation and execution outcome reporting"
+    direction: "inbound"
+    type: "cli_entrypoint"
+    boundary: "Developer on host Windows -> `wsl.exe -d agent-host -u root -e` -> Go executable (`create_agent_net`) in `agent-host`"
+    transport: "POSIX process execution / standard I/O streams (relayed by `wsl.exe`)"
+    privilege: "root with CAP_NET_ADMIN in the host network namespace and Docker socket access; `agent-operator` needs neither sudo nor `docker` group membership"
+    channels:
+      - id: "CHAN-WSL-CONSOLE"
+        description: "Command line in, stdout/stderr and exit code out"
+    contract:
+      inputs:
+        args: []                      # no arguments; `arm <container>` is the internal call from create_agent_container (IP-AGENT-NET); `disarm <container>` closes one container's port (IP-AGENT-NET port_disarm); `check-gate <container>` is a read-only per-port check (IP-AGENT-NET port_check); `released` lists the gate set (IP-AGENT-NET gate_list); `evict <mac>` removes one element of the gate set (IP-AGENT-NET gate_evict); exactly six forms are accepted (SFR-NET-001)
+        env_vars:                     # read by packages/agent-net/internal/config/config.go; all optional
+          - name: "AGENT_NET_DOCKER_SOCKET"
+            description: "Override of the Docker socket path"
+          - name: "AGENT_NET_DAEMON_JSON"
+            description: "Override of the `daemon.json` path (hashed, never modified)"
+          - name: "AGENT_NET_DOCKER_PID_FILE"
+            description: "Override of the Docker daemon PID file (engine start identity)"
+          - name: "AGENT_LOG_LEVEL"
+            description: "Log level, default INFO"
+      outputs:
+        stdout:
+          format: "text/plain (human-readable console report)"
+          encoding: "UTF-8"           # proposed
+        stderr:
+          format: "text/plain (diagnostic error traces)"
+          encoding: "UTF-8"           # proposed
+        exit_code:                    # proposed
+          type: "integer"
+          values:
+            0: "Success (network created and verified)"
+            1: "Usage or prerequisite error (invalid invocation, not root/CAP_NET_ADMIN/no Docker socket access, Docker unavailable, `agents-net` already exists, subnet overlap); nothing created"
+            2: "Runtime failure (`network_create` failed, or verification failed; no rollback)"
+
+  # ---------------------------------------------------------------------------
+  # USC-007 — remove_agent_net
+  # `wsl.exe -d agent-host -u root -e remove_agent_net`; the tool runs as root
+  # inside `agent-host`. Uses IP-DOCKER-ENGINE (network_inspect, network_containers,
+  # container_remove, network_remove) and IP-AGENT-NET (port_disarm code, nft_delete_table,
+  # iptables_delete, fdb_delete).
+  # ---------------------------------------------------------------------------
+
+  - ip_ref: "IP-CLI-REMOVE-AGENT-NET"
+    role: "Primary entrypoint for developer invocation and execution outcome reporting of the network removal"
+    direction: "inbound"
+    type: "cli_entrypoint"                # proposed
+    boundary: "Developer on host Windows -> `wsl.exe -d agent-host -u root -e` -> Go executable (`remove_agent_net`) in `agent-host`"
+    transport: "POSIX process execution / standard I/O streams (relayed by `wsl.exe`)"
+    privilege: "root with CAP_NET_ADMIN in the host network namespace and Docker socket access"
+    channels:
+      - id: "CHAN-WSL-CONSOLE"
+        description: "Command line in, stdout/stderr and exit code out"
+    contract:
+      inputs:
+        args: []                      # no arguments; any argument is a usage error
+        env_vars:                     # same as IP-CLI-CREATE-AGENT-NET (packages/agent-net/internal/config/config.go); all optional
+          - name: "AGENT_NET_DOCKER_SOCKET"
+            description: "Override of the Docker socket path"
+          - name: "AGENT_NET_DAEMON_JSON"
+            description: "Override of the `daemon.json` path (hashed, never modified)"
+          - name: "AGENT_NET_DOCKER_PID_FILE"
+            description: "Override of the Docker daemon PID file (engine start identity)"
+          - name: "AGENT_LOG_LEVEL"
+            description: "Log level, default INFO"
+      outputs:
+        stdout:
+          format: "text/plain (human-readable console report: one line per container removed or already gone during the removal, then one final line with the number of containers removed by this run (not their names), workspaces kept)"
+          encoding: "UTF-8"           # proposed
+        stderr:
+          format: "text/plain (diagnostic error traces)"
+          encoding: "UTF-8"           # proposed
+        exit_code:                    # proposed
+          type: "integer"
+          values:
+            0: "Success (everything removed and verified), or nothing to remove"
+            1: "Usage or prerequisite error (argument given, not root/CAP_NET_ADMIN/no Docker socket access, Docker unavailable, a container that is not `agent-<id>` is attached to `agents-net`); nothing changed (`NOT_REMOVED`)"
+            2: "Runtime failure (a container, netdev table, rule or network step failed, or the read-back found something left; no rollback; run again to finish; `REMOVE_INCOMPLETE`)"
+
+  - ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"
+    role: "Primary entrypoint for developer invocation and execution outcome reporting of one agent container's removal"
+    direction: "inbound"
+    type: "cli_entrypoint"                # proposed
+    boundary: "Developer on host Windows -> `wsl.exe -d agent-host -u root -e` -> Go executable (`remove_agent_container`) in `agent-host`"
+    transport: "POSIX process execution / standard I/O streams (relayed by `wsl.exe`)"
+    privilege: "root (Docker socket; `create_agent_net disarm` needs CAP_NET_ADMIN in the host network namespace)"
+    channels:
+      - id: "CHAN-SHELL-CONSOLE"
+        description: "Command line in, stdout/stderr and exit code out"
+    contract:
+      inputs:
+        args:
+          - name: "agentID"
+            required: true
+            description: "Identifier of the agent; the container `agent-<agentID>` and workspace `Workspace-Agents/<agentID>`"
+            allowed_values: "^[a-z][a-z0-9-]{0,30}$"
+          - name: "--purge-workspace"
+            required: false
+            description: "Also delete `Workspace-Agents/<agentID>` (only that directory, never a symlink or a path outside the root); kept by default"
+          - name: "--purge"
+            required: false
+            description: "Also delete the agent state `/var/lib/agent-sandbox/<agentID>` (Claude login and history; only that directory, never a symlink or a path outside the state root); kept by default; combinable with `--purge-workspace`"
+        env_vars:                         # read by packages/agent-sandbox/internal/config/config.go; all optional
+          - name: "AGENT_SANDBOX_WORKSPACE_ROOT"
+            description: "Override of the `Workspace-Agents` root"
+          - name: "AGENT_SANDBOX_ARM_BIN"
+            description: "Override of the path of `create_agent_net` called for disarm"
+          - name: "AGENT_SANDBOX_RUNTIME_DIR"
+            description: "Override of `/run/agent-sandbox` (per-agent locks)"
+          - name: "AGENT_SANDBOX_STATE_ROOT"
+            description: "Override of `/var/lib/agent-sandbox` (per-agent state)"
+          - name: "AGENT_LOG_LEVEL"
+            description: "Log level, default INFO"
+      outputs:
+        stdout:
+          format: "text/plain (human-readable console report: container removed or not present, workspace and agent state kept or purged)"
+          encoding: "UTF-8"           # proposed
+        stderr:
+          format: "text/plain (diagnostic error traces)"
+          encoding: "UTF-8"           # proposed
+        exit_code:                    # proposed
+          type: "integer"
+          values:
+            0: "Success: container removed (`REMOVED`) or no container existed (`NOT_PRESENT`)"
+            1: "Usage or prerequisite error (bad agentID or flag, per-agent lock held, Docker unreachable, `create_agent_net` not runnable); nothing changed (`NOT_REMOVED`)"
+            2: "Runtime failure (`DISARM_FAILED`: nothing removed; `REMOVE_FAILED`; `NOT_REMOVED`: container lookup or removal check failed, nothing changed; `WORKSPACE_PURGE_FAILED` or `STATE_PURGE_FAILED`: container already gone); run again to finish"
+
+  - ip_ref: "IP-AGENT-WORKSPACE-FS"
+    role: "Per-agent workspace folder on the `agent-host` filesystem, mounted read-write into the container"
+    direction: "outbound"
+    type: "filesystem"
+    boundary: "Go process -> `agent-host` filesystem (`Workspace-Agents/<agentID>`)"
+    transport: "POSIX filesystem calls; bind mount into the container"
+    channels:
+      - id: "CHAN-FS-WORKSPACE"
+        description: "Folder creation under `Workspace-Agents`; read-write bind mount"
+    contract:
+      path: "Workspace-Agents/<agentID>"
+      parent_location: "/home/agent-operator/Workspace-Agents"
+      owner: "agent-operator"             # created by root, then `chown`
+      container_mount_path: "/workspace"
+      subfolders_created: "`.output` (created as root, then `chown` to `agent-operator`, like the folder itself; both folders are handed to `agent-operator` whether created or reused)"
+      layout_inside: "USC-002 creates only the folder and its `.output` subfolder; any other content (for example `src`, `.npm-env`, `.venv`, `.conda-env`) is application-dependent and not created, assigned or masked by USC-002"
+      existing_folder_behaviour: "Reused, not an error; a missing `.output` subfolder is created (USC-002 step 3; failure is err-7)"
+      parent_precondition: "The `Workspace-Agents` root is created manually by the developer as `agent-operator` before the first run (not by any tool). It must exist, be a directory (not a symbolic link) and be owned by `agent-operator`; otherwise exit 1 with no side effect (USC-002 step 2, err-6; SFR-AGC-023)"
+      error_handling:
+        detection: "Filesystem error on create/mount"     # proposed
+        propagation: "Report failure on IP-CLI-CREATE-AGENT-CONTAINER; nothing is started"
+
+  # ---------------------------------------------------------------------------
+  # Lifecycle units — installed by USS-001 (USC-001 step 11), run by systemd in
+  # `agent-host`; no developer entrypoint (IP-CLI-AGENT-LIFECYCLE is not
+  # promoted: the units start the tool, the developer does not).
+  # ---------------------------------------------------------------------------
+
+  - ip_ref: "IP-AGENT-LIFECYCLE"
+    role: "Rebuild the agents-net gate and remove old agent containers after every dockerd start, and keep agent containers confined: the guard follows container and network events, disarms on `die`, removes a container that fails its gate check (after a successful disarm only) and reconciles every `AGENT_SANDBOX_GUARD_RECONCILE` (default 60 s)"
+    direction: "outbound"
+    type: "systemd_units"                 # proposed
+    boundary: "systemd in `agent-host` -> `/usr/local/bin/agent_lifecycle` (root) -> Docker engine, `create_agent_net`, `remove_agent_net`, `remove_agent_container` code, `/run/agent-sandbox`"
+    transport: "systemd units `agent-restore.service` (oneshot, `RemainAfterExit`, `Requires`/`After`/`PartOf` `docker.service`, `ExecStopPost` removes the ready marker) and `agent-guard.service` (simple, `Restart=always`); `docker events` stream for the guard; files `/run/agent-sandbox/ready` and `/run/agent-sandbox/<agentID>.lock`"
+    privilege: "root"
+    channels:
+      - id: "CHAN-SYSTEMD-UNIT"
+        description: "Unit start and stop in, journal output and unit state out"
+      - id: "CHAN-DOCKER-EVENTS"
+        description: "`docker events` stream consumed by `agent_lifecycle guard`: container events `start`, `unpause`, `die` and `update`, and network events `connect` and `disconnect` (the container is resolved from `Actor.Attributes.container`; any connect or disconnect of an `agent-*` container counts, whatever the network)"
+    operations:
+      - id: "lifecycle_restore"
+        cmd: "agent_lifecycle restore"
+        purpose: "After each docker start (SFR-HOST-011): remove `/run/agent-sandbox/ready`; wait up to 60 s (`AGENT_SANDBOX_DOCKER_WAIT`) for the daemon and note dockerd's MainPID; remove every `agent-*` container through the remove path with a tolerant disarm and never purge; run `remove_agent_net` (a failure is a warning) and `create_agent_net` (must exit 0); require `agents-net`; write the ready marker with dockerd's MainPID unless dockerd restarted meanwhile. Exit 0 `RESTORED`; 1 `NOT_RESTORED` (not root); 2 `RESTORE_FAILED` or `NOT_RESTORED` (daemon never answered); no marker is left on failure"
+      - id: "lifecycle_guard"
+        cmd: "agent_lifecycle guard"
+        purpose: "Long-running. Follows the events of `CHAN-DOCKER-EVENTS` for `agent-<id>`. Tries the per-agent lock without blocking: held means a create or remove is running, ignore; when free, the guard holds it through check and remove (the remove path runs with `LockHeld`). On `die`: runs `create_agent_net disarm <name>` (name-keyed, SFR-NET-027); the container stays. On the other events: skips a container that no longer exists or whose `create_agent_net check-gate` passes; on a clean failure (exit 2) removes it through the remove path (never `--purge`) and logs one line to the journal. On errors (existence check fails, `check-gate` cannot run or exits 1) fails closed: `disarm <name>` first, then `docker rm` only when the disarm exited 0; when the disarm failed the container is left in place, paused if possible, and both outcomes are logged. Reconcile at start-up and every `AGENT_SANDBOX_GUARD_RECONCILE` (default 60 s): `check-gate` of every `agent-*` container whose lock is free, then `create_agent_net released` is read: an element without comment -> `create_agent_net evict <mac>`, an element whose container does not exist -> `disarm <name>`. Exits 1 when `docker events` ends, so systemd restarts it"
+        notes: "A restarted container is removed, not re-armed; blocking a deliberate `docker restart` is out of scope (it needs Docker-socket access, which is root-equivalent). Open: stopped containers are removed at the next reconcile, because `check-gate` requires a running container (pending decision)"
+      - id: "ready_marker_read"
+        cmd: "read `/run/agent-sandbox/ready`; `systemctl show -p MainPID --value docker.service`"
+        purpose: "`create_agent_container` waits up to 60 s until the marker holds dockerd's current MainPID, else exit 3 `NET_NOT_READY` (USC-002 step 2)"
+    contract:
+      error_handling:
+        detection: "Non-zero exit of the tool or the unit"
+        propagation: "Journal of the unit; `create_agent_container` reports `NET_NOT_READY` (exit 3) when the marker is missing"
+      known_limits: "An idle stop of the distro (no `wsl.exe` session attached) kills dockerd and running containers; the next dockerd start runs `restore`, the next launch recreates the container (login and history kept, the running claude process lost). Per-port controls stay veth-bound (no nft bridge family), so a restarted container is replaced, never repaired"
+
+  # ---------------------------------------------------------------------------
+  # USS-003 — create_agent_image
+  # The image is built from `Dockerfile.agent` directly by the Docker engine of
+  # `agent-host` (there is no Windows-side Docker engine or CLI and no second Docker engine).
+  # Reuses IP-DOCKER-ENGINE (engine_check, image_inspect, image_build operations).
+  # Only `agent-host` runs Docker. All WSL2 distros share one VM network stack (one
+  # kernel, one network namespace): a second Docker daemon (e.g. in `dev-distro`) would
+  # share `docker0` and the firewall rules with `agent-host` and could disturb the
+  # host-side network controls of `create_agent_net arm` (USS-004); bridges of removed
+  # distros also persist in the VM until `wsl --shutdown`. Building on Windows itself is
+  # impossible (the `RUN` steps need a Linux kernel). `dev-distro` holds only the
+  # repository checkout, Go and uv (builds the binaries) and must not run Docker.
+  # `create_agent_image.exe` is a Windows-side Go executable (built from
+  # `packages/agent-image/cmd/create_agent_image`, `dist\create_agent_image.exe`); it runs
+  # every external command via `os/exec`, and every action is a
+  # `wsl.exe -d agent-host -u root -e <cmd>` call made from that tool. It is NOT
+  # installed into `agent-host`.
+  # ---------------------------------------------------------------------------
+
+  - ip_ref: "IP-CLI-CREATE-AGENT-IMAGE"
+    role: "Primary entrypoint for developer invocation, overwrite prompt and execution outcome reporting"
+    direction: "inbound"
+    type: "cli_entrypoint"
+    boundary: "PowerShell 7.4+ host process -> Go executable (`create_agent_image.exe [--tag <tag>]`)"
+    transport: "Win32 process execution / standard I/O streams"
+    channels:
+      - id: "CHAN-PS-CONSOLE"
+        description: "Command line in, overwrite prompt (stdin/console) and stdout/stderr, exit code out"
+    contract:
+      inputs:
+        stdin: "Answer to the prompt `overwrite agent-image:<tag>? [y/N]`, asked only when the image already exists; anything but `y`/`Y` declines"
+        args:
+          - name: "--tag"                 # defined by USC-003 / USS-003; `create_agent_host` defines no flags, so `--tag <tag>`
+            required: false
+            description: "Tag of the image: selects `agent-image:<tag>`; default `latest`"
+            allowed_values: "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"   # [A-Za-z0-9_.-]{1,128}, not starting with '.' or '-'; no further args; image name is `agent-image` (default tag `latest`, full name `agent-image:latest`); must match USS-002
+        env_vars: []                  # none: packages/agent-image/internal/config/config.go reads no environment variable
+      outputs:
+        stdout:
+          format: "text/plain (human-readable console report)"
+          encoding: "UTF-8"           # proposed
+        stderr:
+          format: "text/plain (diagnostic error traces)"
+          encoding: "UTF-8"           # proposed
+        exit_code:                    # proposed
+          type: "integer"
+          values:
+            0: "Success (image built in `agent-host`, verified and present as `agent-image:<tag>`), or overwrite declined (existing image kept, nothing built)"
+            1: "Usage, build-input or prerequisite error (invalid tag or any other flag incl. `--dev-distro`, `Dockerfile.agent` or `requirements.lock` missing or not a regular file in the current working directory (no `wsl.exe` call is made), `wsl.exe`/`agent-host` unreachable, `docker version` in `agent-host` fails, `docker build` in `agent-host` fails)"
+            2: "Verification failure (`docker image inspect agent-image:<tag>` fails after the build, or the credential check of the image metadata finds a credential-like name or value (SSR-IMG-005); state UNVERIFIED; image left in place; no rollback)"
+            130: "Interrupted (SIGINT, Ctrl-C): in-flight step cancelled, `wsl.exe` child terminated, no later step, no success reported, one interrupted line on stderr (SFR-IMG-018); no rollback, the image tag state is whatever the engine left"
+
+  - ip_ref: "IP-IMAGE-BUILD-CONTEXT"
+    role: "Dockerfile and lock file the agent image is built from, read from the current working directory on Windows by the Go process"
+    direction: "outbound"
+    type: "filesystem"
+    boundary: "Go process -> `Dockerfile.agent` and `requirements.lock` in the current working directory on Windows (the folder the executable is run from, e.g. `C:\\agent-setup`)"
+    transport: "Win32 file read"
+    channels:
+      - id: "CHAN-FS-BUILD-CONTEXT"
+        description: "Existence check (regular files) and read of `Dockerfile.agent` and `requirements.lock`"
+    contract:
+      path: "`Dockerfile.agent` and `requirements.lock` in the current working directory on Windows; copied there from `dist/` together with the binaries, re-copied after a change; no other file is part of the build inputs"
+      build_tool: "`create_agent_image.exe` packs exactly these two files into the in-memory tar sent over IP-IMAGE-BUILD-STREAM (no Windows-side Docker engine or CLI, no Docker Desktop)"
+      error_handling:
+        detection: "File missing or not a regular file, checked in step 1 before any `wsl.exe` call"      # proposed
+        propagation: "Report the missing file on IP-CLI-CREATE-AGENT-IMAGE with exit code 1; nothing is created"
+
+  - ip_ref: "IP-IMAGE-BUILD-STREAM"
+    role: "Delivery of the build inputs from the Go process into the `docker build` in `agent-host`"
+    direction: "outbound"
+    type: "subprocess_cli"
+    boundary: "Go process (in-memory tar) -> stdin of `wsl.exe -d agent-host -u root -e docker build -f Dockerfile.agent -t agent-image:<tag> -` -> Docker engine in `agent-host`"
+    transport: "Child process stdin (`wsl.exe`); no Windows temp file, nothing copied into `agent-host`"
+    channels:
+      - id: "CHAN-WSL-BUILD-STDIN"
+        description: "Build inputs tar on stdin; build output, stdout/stderr and exit status back"
+    contract:
+      stdin: "Uncompressed tar of exactly `Dockerfile.agent` and `requirements.lock`, built in memory, deterministic: entries sorted, mode 0644, uid/gid 0, mtime 0"
+      cmd: "wsl.exe -d agent-host -u root -e docker build -f Dockerfile.agent -t agent-image:<tag> -   # started via os/exec; the tar is written to its stdin"
+      privilege: "`-u root` from host Windows: `agent-operator` needs neither sudo nor `docker` group membership"
+      invoked_by: "`create_agent_image.exe` (not issued by `create_agent_host`; IP-WSL-CLI is not reused)"
+      error_handling:
+        detection: "Non-zero exit code of `docker build`"      # proposed
+        propagation: "Report the Docker error on IP-CLI-CREATE-AGENT-IMAGE with exit code 1; no cleanup / rollback"
+
+  - ip_ref: "IP-IMAGE-CONTENT-SOURCE"
+    role: "Upstream sources pulled during the image build in `agent-host`: base image and `claude` CLI package"
+    direction: "outbound"
+    type: "http_client"
+    boundary: "Docker build in `agent-host` -> remote base image registry / CLI package source (`agent-host` needs internet access)"
+    transport: "HTTPS"
+    channels:
+      - id: "CHAN-HTTPS-IMAGE-BUILD"
+        description: "Base image pull and `claude` CLI download during the build in `agent-host`"
+    contract:
+      base_image: "Ubuntu 26.04 LTS (`resolute`), pinned by dated tag and digest (`ubuntu:resolute-YYYYMMDD@sha256:...`) in `Dockerfile.agent`; every OS package (Node 22, npm, Python 3.14, `docker.io`, `tini`) pinned to an exact version (`package=version`) from an Ubuntu snapshot (snapshot.ubuntu.com) frozen at a fixed timestamp in `Dockerfile.agent`"
+      claude_cli_source: "npm package `@anthropic-ai/claude-code`, pinned to an exact version in `Dockerfile.agent`; tarball checksums stored in the repo (`Dockerfile.agent`)"
+      langgraph_source: "PyPI, installed in a venv; `langgraph` and its dependencies pinned to exact versions with hashes in `requirements.lock`"
+      tini_source: "Ubuntu package repository, exact package version pinned in `Dockerfile.agent`"
+      integrity: "Every component pinned to an exact version and every downloaded artefact verified by checksum before installation; the build fails when a check fails (SSR-IMG-004)"
+      error_handling:
+        detection: "Build failure in `agent-host` (source unreachable)"               # proposed
+        propagation: "Report and stop; the Docker error is included on IP-CLI-CREATE-AGENT-IMAGE with exit code 1"
+      notes: "May be split into IP-BASE-IMAGE-REGISTRY and IP-CLAUDE-CLI-SOURCE if tracked separately; an image push IP is not defined (local image)"
+
+  # ---------------------------------------------------------------------------
+  # Rich renderer communication channel — defined by the rich-rendering posts
+  # (ch03 posts 01 and 02), not by the container/network/daemon docs.
+  # Client side (harness/renderer) is outside `create_agent_container`; the
+  # container tool only has to leave the container able to host the session.
+  # ---------------------------------------------------------------------------
+
+  - ip_ref: "IP-RENDERER-CHANNEL"
+    role: "Persistent, bidirectional NDJSON session between a host-side harness and one `claude` process in the agent container"
+    direction: "bidirectional"
+    type: "docker_exec_session"
+    boundary: "Host-side harness -> Docker engine exec socket -> `claude` process in the agent container"
+    transport: "Docker exec session: stdin open, no TTY; stdout/stderr multiplexed by Docker in length-prefixed frames (stream id + payload length)"
+    channels:
+      - id: "CHAN-EXEC-NDJSON"
+        description: "One JSON object per line in both directions; stdout carries events, stderr is collected separately"
+    contract:
+      session_process: "One long-lived `claude` process per container, stream-json in and out, partial-message streaming enabled, non-interactive permission prompts (denied, not blocking)"
+      permission_mode:
+        configurable: true
+        default: "auto"                   # classifier approves safe actions, rest denied
+        other_values: "bypassPermissions (no checks), empty (chat only); further CLI modes allowed"
+      inputs:
+        message: "One line per user turn: JSON object of type `user` with role `user` and the text content"
+        eof: "Closing the write side signals shutdown; the process exits"
+      outputs:
+        event_types:
+          - "system (init and status; ignored by the renderer)"
+          - "stream_event (content block start/delta/stop for streaming text and tool-call announcement)"
+          - "assistant (finished message, may contain tool calls)"
+          - "user (tool results)"
+          - "result (ends the turn; carries final text, error flag, duration, turn count)"
+          - "rate_limit_event (ignored by the renderer)"
+        turn_end: "`result` event"
+      limits:
+        max_line_length: "1 MiB (configurable)"           # per post 02; applies to lines and announced frames
+        max_text_block: "20,000 characters (configurable)"
+        turn_timeout_seconds: 600                         # per post 01; configurable
+        close_timeout_seconds: 10                         # per post 01; configurable
+      session_lifecycle:
+        open: "Started on the first agent turn; container must be running"
+        turn: "Write one user line, read events until `result`; session stays open between turns, conversation memory and prompt cache live in the process"
+        close: "Operator quits: close write side, drain until process exit, drop session"
+        reset: "On over-long line, EOF or turn timeout the session is closed and a new process (without prior conversation memory) starts on the next turn"
+        persistence: "Session is lost if the harness exits; resume across restarts is not supported; the session ends with the process"
+      validation:
+        schema: "Known event types and field types only; non-conforming events dropped and counted"
+        parse_errors: "Invalid JSON and over-deep nesting drop the line"
+        trust: "Envelope fields (error flag, duration, turn count) are treated as reported by the CLI and drive no host-side decision"
+      error_handling:
+        detection: "EOF on stdout, over-long line, turn timeout, `result` with error flag"
+        propagation: "Turn returns a failure text to the harness; renderer is always finished (no stuck spinner)"
+      container_prerequisites:                            # proposed: posts assume, do not assign to the tool
+        - "Container running (unpaused) and attached to the agent network"
+        - "`claude` CLI present on the session command path"
+        - "Session process started with the explicit agent user (`docker exec -u 1001 ...`, SSR-AGC-011); an exec without `-u` runs as uid 0"
+        - "CLI logged in: the user logs in through the web-based authentication flow (`claude /login`) on first use inside the container; the token is created by the agent inside the container and stored under `/home/agent/.claude`, a per-agent host state directory that survives recreating the container (not injected from the host); `api.anthropic.com` and `platform.claude.com` are reachable through the egress allowlist (USS-004)"
+      rollback: "None; failure is reported and the run stops"
+
+  - ip_ref: "IP-OPERATOR-TERMINAL-OUT"
+    role: "Rendered view of the agent session on the operator's terminal"
+    direction: "outbound"
+    type: "terminal_output"
+    boundary: "Host-side renderer -> operator's terminal emulator -> operator"
+    transport: "Terminal output stream (ANSI-capable console)"
+    channels:
+      - id: "CHAN-TERMINAL-OUT"
+        description: "Spinner, streaming text, markdown answer, tool-call and tool-result panels, footer with duration and turn count"
+    contract:
+      outputs:
+        views: ["spinner", "streaming text tail", "final markdown answer", "tool-call panel", "tool-result panel (error variant)", "footer"]
+        fallback: "Plain text when output is not a TTY"
+      sanitisation:
+        rule: "All agent-originated strings pass one sanitiser before rendering"
+        control_sequences: "Escape-introduced sequences, control characters, 8-bit controls and format characters are replaced with visible markers, not executed"
+        links: "Markdown links display their target"
+        markup: "Dynamic strings escaped before use in markup (e.g. tool name)"
+        clipping: "Tool input/result clipped keeping head and tail; text blocks size-capped"
+        envelope_fields: "Shown as 'reported' by the CLI"
+      known_limits: "A forged panel or prompt drawn with ordinary characters cannot be prevented on a shared terminal canvas (separate regions are a later UI story)"
+
+  - ip_ref: "IP-OPERATOR-TERMINAL-IN"
+    role: "Operator replies and quit command entering the agent session"
+    direction: "inbound"
+    type: "terminal_input"
+    boundary: "Operator -> terminal -> host-side harness -> IP-RENDERER-CHANNEL"
+    transport: "Line input from the operator's terminal"
+    channels:
+      - id: "CHAN-TERMINAL-IN"
+        description: "One line per reply; separate from agent output; quit word ends the session"
+    contract:
+      inputs:
+        reply: "Free text, sent as the next user message"
+        quit: "Exit word `/quit`"
+      validation:
+        pre_read: "Pending tty input is flushed before the reply is read"
+        post_read: "A reply containing control or format characters is shown neutralised, dropped and asked again"

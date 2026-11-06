@@ -1,0 +1,22 @@
+SFR-AGC-017:
+  title: "Remove the disarmed container"
+  kind: "functional"
+  usecase_step_ref: "USC-006: step 5, err-5"
+
+  statement: "The system shall remove the disarmed agent container."
+
+  condition: "After a successful disarm, whether the removal is requested by the developer or by the guard."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-REMOVE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must remove only the container named after the agent identity."
+    - "Must remove it with a forced removal (docker rm -f), after unpausing it when its inspected state is paused (docker inspect -f {{.State.Paused}}, then docker unpause), because the isolated runtime cannot kill a paused sandbox; a failed unpause is a failed removal. A container that no longer exists at that inspection is not an error."
+    - "Must remove a container whose port was already disarmed by the guard on its die event (the container stays after that disarm) through the same path: the disarm is repeated before the removal and exits 0 when nothing is left to do."
+    - "Must, when the guard removes a container (SFR-AGC-025, SFR-AGC-026), run this removal with the per-agent lock the guard already holds, without taking a second lock, and never with --purge."
+    - "Must report a failed removal at IP-CLI-REMOVE-AGENT-CONTAINER with exit state REMOVE_FAILED and exit status 2."
+
+  post_conditions:
+    - "No other container, network or image was removed."

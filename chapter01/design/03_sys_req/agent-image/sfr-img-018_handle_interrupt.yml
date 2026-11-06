@@ -1,0 +1,30 @@
+SFR-IMG-018:
+  title: "Stop cleanly on interrupt (SIGINT, Ctrl-C) without reporting success"
+  kind: "functional"
+  usecase_step_ref: "USC-003: steps 1-6, err-8"
+
+  statement: "The system shall, on an interrupt (SIGINT, Ctrl-C) of the image creation tool, cancel the step in flight, terminate the `wsl.exe` child process, start no later step, report no success after steps 1 to 6, report the interruption on one line and return exit status 130."
+
+  condition: "When the developer interrupts the tool at any point from its start until step 7 (report success) begins."
+
+  interface_points:
+    - "IP-CLI-CREATE-AGENT-IMAGE Developer command-line entrypoint"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-IMAGE-BUILD-STREAM Build inputs stream into the agent-host build"
+
+  constraints:
+    - "Must cancel the step in flight and terminate the `wsl.exe` child process of that step (engine check, existence check, build or verification) at IP-DOCKER-ENGINE and IP-IMAGE-BUILD-STREAM."
+    - "Must start no later step and issue no further `wsl.exe` call after the interrupt, including no verification and no credential check of SFR-IMG-016."
+    - "Must check for an interrupt before each of the 7 steps starts and after each of steps 1 to 6 has returned; an interrupt seen at either check ends the run with exit status 130 in place of the step's own result, also when the step itself succeeded or failed, and also when the developer is asked the overwrite prompt."
+    - "Must not write a success report to the standard output and must not return exit status 0 for an interrupt seen at those checks, including an interrupt that arrives after step 6 (verification) finished and before step 7 starts."
+    - "Limit: step 7 (report success) is not followed by an interrupt check; an interrupt that arrives after step 7 has started, while the success line is written, does not change the result: the success report is written and exit status 0 is returned."
+    - "Must write exactly one line to the error output at IP-CLI-CREATE-AGENT-IMAGE, in the form `create_agent_image: interrupted at step <n> (<step name>); exit_state: INTERRUPTED, exit_code: 130`, where <n> is the step in flight, or the step that would have started next."
+    - "Must return exit status 130 at IP-CLI-CREATE-AGENT-IMAGE, in place of the exit status the cancelled step would otherwise have produced (1 or 2)."
+    - "Must, when interrupted at the overwrite prompt (step 4), treat the interrupt as neither a decline nor a confirmation: nothing is built and the existing image is unchanged."
+    - "Must, when interrupted during or after the build (steps 5 and 6), perform no rollback and no cleanup and make no statement about the state of the image tag: the tag state is whatever the Docker engine left (a previously existing `agent-image:<tag>` kept, replaced, or no image present), and the image, if present, is unverified."
+    - "Must, when interrupted before the build (steps 1 to 3), leave everything unchanged; nothing is created."
+
+  post_conditions:
+    - "No step after the interrupted one has run, no success has been reported, and exit status 130 has been returned (for an interrupt before step 7 begins)."
+    - "The `wsl.exe` child of the interrupted step is terminated."
+    - "No rollback has been performed; after an interrupt during or after the build the state of `agent-image:<tag>` is as the engine left it and is unverified; after an interrupt at or before the overwrite prompt nothing was built."

@@ -1,0 +1,25 @@
+SFR-AGC-025:
+  title: "Check or disarm an agent container on every container and network event"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 11 (units installed); the runtime behaviour has no use case step"
+
+  statement: "The system shall follow the container and network events of the engine and, for every agent container, disarm its port when it dies and check its gate when it starts, is unpaused, is updated, or is connected to or disconnected from a network."
+
+  condition: "While agent-guard.service runs (agent_lifecycle guard)."
+
+  interface_points:
+    - "IP-AGENT-LIFECYCLE Lifecycle units"
+    - "IP-AGENT-NET Agent network control"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must follow the container events start, unpause, die and update and the network events connect and disconnect from the engine event stream. A network event carries the container ID in the actor attribute container; the guard resolves it to the container name, and any connect or disconnect of an agent-* container counts, whatever the network."
+    - "Must act only on containers named agent-<id>, and must try the per-agent lock without blocking before it acts: a held lock means a create or remove run is under way and the event is ignored (SSR-AGC-017)."
+    - "Must, on die, call the disarm of IP-AGENT-NET for the container name (the container stays; the disarm is name-keyed and idempotent, SFR-NET-012)."
+    - "Must, on every other event, skip a container that no longer exists, and otherwise call the check-gate of IP-AGENT-NET: exit status 0 leaves the container as it is; a clean failure (exit status 2) removes the container through the remove path of SFR-AGC-017, without --purge, and logs one line to the standard error (the journal). A check-gate that cannot be run, or exits 1, is an error handled by SFR-AGC-026."
+    - "Must exit with status 1 when the event stream ends, so that systemd restarts the unit."
+    - "Must remove a restarted container instead of re-arming it: the restart gives it a new veth without a port table, so its gate check fails (SFR-NET-021, SFR-NET-025)."
+
+  post_conditions:
+    - "An agent container whose gate no longer holds is removed, and the port of a container that died is closed."
+    - "No container is re-armed by the guard."

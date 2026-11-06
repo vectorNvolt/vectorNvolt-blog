@@ -1,0 +1,23 @@
+SFR-NET-026:
+  title: "Remove the agents-net gate"
+  kind: "functional"
+  usecase_step_ref: "USC-007: steps 7, 8, alt-2, err-5"
+
+  statement: "The system shall delete the netdev table agents_gate and the iptables rule tagged agent-net:gate once the agent containers have been removed and before the network agents-net is removed."
+
+  condition: "After the agent containers and the leftover port tables have been removed."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must delete the table by name (`nft delete table netdev agents_gate`) and leave every other nftables table untouched."
+    - "Must delete the rule tagged agent-net:gate in DOCKER-USER together with the other leftover agent-net: rules (SFR-NET-016) and leave every rule without that comment untouched."
+    - "Must delete the tagged rules (USC-007 step 7, SFR-NET-016) first and the table (USC-007 step 8) after them, both after the leftover port tables (step 6) and before the network (step 9)."
+    - "Must delete them only after the agent containers are removed, so that no agent port is left without the gate."
+    - "Must be the only deletion of the table agents_gate, its chains and the rule agent-net:gate: the name-keyed disarm (SFR-NET-027) removes only set elements of released and never deletes or changes the table, its chains or that rule. Deleting the table also deletes every remaining element of released."
+    - "Must tolerate a table or rule that is already absent."
+    - "Must, when a deletion fails, report what failed on stderr and return `exit_code: 2`, state `REMOVE_INCOMPLETE`, without rollback; the remaining removal steps still run and the removal can be run again."
+
+  post_conditions:
+    - "No `agents_gate` netdev table and no `agent-net:gate` iptables rule exists."

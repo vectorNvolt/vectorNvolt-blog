@@ -1,0 +1,224 @@
+# ==============================================================================
+# USC-007 — remove the shared agent network (cascade) and the disarm it builds on
+# Template: tmpl_usecase_v2.yml
+# Interaction points and channels are defined in
+# design/00_system_boundary/interaction_points.yml.
+# `# proposed` = not yet stated in a user story; needs confirmation.
+# `requirement_refs` on a step lists the requirements (design/03_sys_req/agent-net/) that realise it.
+# Scope: `remove_agent_net`, the inverse of USC-004. Per-container disarming
+# (`create_agent_net disarm <container>`, USC-004 alt-2) is the same code, run
+# in-process for every agent container of the cascade.
+# Removes the agent containers (each disarmed first, workspace kept), any
+# leftover `as_port_*` netdev tables, any leftover `agent-net:` iptables rules
+# (the gate rule included), the `agents_gate` table and `agents-net`, in that
+# order (steps 6 to 9). No agent port is ever left open while it is removed.
+# Decision (Developer): removal cascades. Agent containers attached to
+# `agents-net` are removed with the network; their workspaces are never touched.
+# ==============================================================================
+
+USC-007:
+  title: "Remove the shared agent network, its agent containers and their per-port tables and rules with one command"
+  summary: "The developer runs a single Go executable as root inside `agent-host`; it removes every agent container attached to `agents-net` (each is disarmed first, its workspace is kept), then any leftover `as_port_*` netdev tables, any leftover `agent-net:` iptables rules (the gate rule included), the `agents_gate` table and the network `agents-net`, and verifies that nothing of it remains. No agent port is ever left open while it is being removed."
+
+  actors:
+    primary: "Developer"
+    supporting:
+      - "Network removal tool (Go executable `remove_agent_net`, run as root in `agent-host`)"
+      - "`agent-host` (WSL2 distro from USS-001)"
+      - "Docker engine in `agent-host`"
+      - "Agent network (`agents-net`, shared bridge network)"
+      - "Agent containers (`agent-<id>`, USS-002) attached to `agents-net`"
+
+  interaction_points:
+    - ip_ref: "IP-CLI-REMOVE-AGENT-NET"   # proposed
+      direction: "inbound"
+      type: "cli_entrypoint"
+      boundary: "`wsl.exe -d agent-host -u root -e remove_agent_net` from host Windows -> Go executable (`remove_agent_net`) as root in `agent-host`"
+      transport: "wsl.exe process execution / standard I/O streams"
+      role: "primary entry (command invocation, no arguments) and exit (success/failure report, exit code)"
+    - ip_ref: "IP-DOCKER-ENGINE"
+      direction: "outbound"
+      type: "subprocess_cli"
+      boundary: "Go process -> Docker engine (`docker` CLI) in `agent-host`"
+      transport: "Child process stdio or local Docker socket"
+      role: "tool inspects the network, lists the containers attached to it (`network_containers`), removes agent containers (`container_remove`) and the network (`network_remove`)"
+    - ip_ref: "IP-AGENT-NET"
+      direction: "outbound"
+      type: "host_network_control"
+      boundary: "Go process -> host network namespace in `agent-host`"
+      transport: "`nft`, `iptables` and `bridge` (FDB) run as root in `agent-host`"
+      role: "tool disarms each container's port, deletes leftover `as_port_*` tables and tagged iptables rules"
+
+  preconditions:
+    - "USC-001 is complete: `remove_agent_net` is installed in `agent-host` next to `create_agent_net`"
+    - "The tool is run as root (`-u root`), holding `CAP_NET_ADMIN` in the host network namespace of `agent-host` and access to the Docker socket"
+    - "Nothing else is required to exist: parts of the setup may already be missing (the netdev tables and iptables rules do not survive a WSL restart)"
+
+  main_flow:
+    - step: 1
+      actor: "Developer"
+      action: "Runs `wsl.exe -d agent-host -u root -e remove_agent_net` from host Windows (no arguments). The tool validates the invocation (no arguments)."
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "command invocation `remove_agent_net`, args: [] — Developer -> Network removal tool"
+    - step: 2
+      actor: "Network removal tool"
+      action: "Checks it runs as root with `CAP_NET_ADMIN` and access to the Docker socket and a reachable engine."
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "engine check; result and exit status — Network removal tool -> Docker engine, result back"
+    - step: 3
+      actor: "Network removal tool"
+      action:
+        - "Records the SHA-256 of `daemon.json` (or its absence) and the engine start identity for the step 10 check"
+        - "Surveys what exists: the network `agents-net`, the `as_port_*` netdev tables, the `agents_gate` table (with its set `released`), and iptables rules whose comment starts `agent-net:`. When none exists, reports `nothing to remove` and returns `exit_code: 0`"
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`network_inspect` result — Network removal tool -> Docker engine, result back"
+    - step: 4
+      actor: "Network removal tool"
+      action:
+        - "Lists the containers attached to `agents-net`, stopped ones included (`docker ps -a --filter network=agents-net`); containers are attached at creation, so a container that was created and never armed is listed (and removed) too"
+        - "Requires every one of them to be named like an agent container (`agent-<id>`); otherwise refuses and changes nothing (err-3)"
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`network_containers` result — Network removal tool -> Docker engine, result back"
+    - step: 5
+      actor: "Network removal tool"
+      action:
+        - "For each agent container: disarms its port by name (as `create_agent_net disarm <container>`, `port_disarm`, SFR-NET-027, USC-004 alt-2: deletes, in this order, its elements of the set `released` of `agents_gate` (those whose comment is the container name or whose MAC was collected), its `as_port_<id>` table, its tagged iptables rules in `DOCKER-USER` and `INPUT`, its neighbour entries and its static FDB entries; the table `agents_gate`, its chains and the rule `agent-net:gate` are never touched here; the port stays locked and isolated (`locked on`, `learning off`, `isolated on`, never unlocked) throughout) and verifies that none is left"
+        - "Unpauses the container if it is paused (a paused sandbox of the isolated runtime cannot be killed); a container that is not found at that point counts as already gone, any other failure stops the run"
+        - "Then runs `container_remove` (`docker rm -f agent-<id>`). The workspace folder of the agent is never touched; as soon as each container is removed, one line on stdout says that it was removed and that its workspace is kept (or that it was already gone)"
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`container_remove` per agent container — Network removal tool -> Docker engine, result back"
+      requirement_refs: ["SFR-NET-012", "SFR-NET-014", "SFR-NET-027", "SSR-NET-003"]
+    - step: 6
+      actor: "Network removal tool"
+      action: "Deletes any leftover `as_port_*` netdev table, only now that the agent containers are removed (`nft_delete_table`). Other nftables tables are not touched."
+      interaction_point:
+        ip_ref: "IP-AGENT-NET"
+        channel: "CHAN-AGENT-NET"
+        object_flow: "`nft delete table netdev as_port_<id>` per leftover table — Network removal tool -> host network namespace"
+    - step: 7
+      actor: "Network removal tool"
+      action: "Deletes any iptables rule whose comment starts `agent-net:` that is left in `DOCKER-USER` and `INPUT`, in that order (rules of containers removed by other means, and the gate rule `agent-net:gate`; SFR-NET-016). Other rules are not touched."
+      interaction_point:
+        ip_ref: "IP-AGENT-NET"
+        channel: "CHAN-AGENT-NET"
+        object_flow: "iptables `-D` by rule number — Network removal tool -> host network namespace"
+    - step: 8
+      actor: "Network removal tool"
+      action: "Deletes the `agents-net` gate table (`nft delete table netdev agents_gate`, SFR-NET-026) with its set `released`, after the gate rule of step 7; this is the only removal of the gate table (the per-container disarm never deletes it). Other tables are not touched."
+      interaction_point:
+        ip_ref: "IP-AGENT-NET"
+        channel: "CHAN-AGENT-NET"
+        object_flow: "`nft delete table netdev agents_gate` — Network removal tool -> host network namespace"
+    - step: 9
+      actor: "Network removal tool"
+      action: "Runs `network_remove` (`docker network rm agents-net`) when the network exists."
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`network_remove` — Network removal tool -> Docker engine, result back"
+    - step: 10
+      actor: "Network removal tool"
+      action: "Verifies by reading back: the network is absent, no `as_port_*` table and no `agents_gate` table is left and no iptables rule with an `agent-net:` comment is left; every failure recorded by steps 6 to 9 is listed with them. Also compares `daemon.json` hash and engine start identity with step 3."
+    - step: 11
+      actor: "Network removal tool"
+      action: "Reports on stdout one final line with the number of containers removed by this run (not their names; a container already gone is not counted), that their workspaces are kept and that the `as_port_*` tables, the `agents_gate` table and the `agent-net:` rules are gone, and returns `exit_code: 0`."
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stdout success report, `exit_code: 0` — Network removal tool -> Developer"
+
+  alternative_flows:
+    - id: "alt-1"
+      at_step: 3
+      condition: "Neither the network, nor an `as_port_*` table, nor a tagged iptables rule exists"
+      behavior:
+        - "Reports that there is nothing to remove; changes nothing; returns `exit_code: 0`"
+    - id: "alt-2"
+      at_step: 3
+      condition: "Parts of the setup are missing (e.g. the netdev tables and iptables rules are gone after a WSL restart, or the network was removed by hand)"
+      behavior:
+        - "Every removal step tolerates what is already absent and removes only what is there; the run is idempotent"
+
+  exception_flows:
+    - id: "err-1"
+      at_step: 1
+      condition: "Any argument is given"
+      system_reaction: "Usage error on stderr; nothing is changed; returns `exit_code: 1`."
+      exit_state: "NOT_REMOVED"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr usage error, `exit_code: 1` — Network removal tool -> Developer"
+    - id: "err-2"
+      at_step: 2
+      condition: "Not running as root, `CAP_NET_ADMIN` missing, no access to the Docker socket, or the Docker engine unavailable"
+      system_reaction: "Report and stop on stderr; nothing is changed; returns `exit_code: 1`."
+      exit_state: "NOT_REMOVED"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Network removal tool -> Developer"
+    - id: "err-6"
+      at_step: 3
+      condition: "The network, the nftables tables or the iptables chains cannot be read"
+      system_reaction: "Report and stop on stderr; nothing is changed; returns `exit_code: 1`."
+      exit_state: "NOT_REMOVED"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Network removal tool -> Developer"
+    - id: "err-3"
+      at_step: 4
+      condition: "A container attached to `agents-net` is not named `agent-<id>`, or the container list cannot be read"
+      system_reaction: "Report on stderr listing those containers; nothing is changed (no agent container is removed either); returns `exit_code: 1`."
+      exit_state: "NOT_REMOVED"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr report listing the foreign containers, `exit_code: 1` — Network removal tool -> Developer"
+    - id: "err-4"
+      at_step: 5
+      condition: "Disarming or removing an agent container fails"
+      system_reaction: "Stops at once; the tables and rules of the containers still to remove stay; stderr names the container and lists the containers still to remove; no rollback; returns `exit_code: 2`. Running the tool again finishes the job."
+      exit_state: "REMOVE_INCOMPLETE"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 2` — Network removal tool -> Developer"
+    - id: "err-5"
+      at_step: 6
+      condition: "A table, rule or network removal fails (steps 6 to 9)"
+      system_reaction: "The failure is recorded and the later removal steps still run; the read-back (step 10) reports what failed on stderr; no rollback; returns `exit_code: 2`. Running the tool again finishes the job."
+      exit_state: "REMOVE_INCOMPLETE"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr failure report naming what is left, `exit_code: 2` — Network removal tool -> Developer"
+    - id: "err-7"
+      at_step: 10
+      condition: "The read-back finds something left, or the `daemon.json` hash or engine start identity differs from step 3"
+      system_reaction: "Lists what is left on stderr; no rollback; returns `exit_code: 2`. Running the tool again finishes the job."
+      exit_state: "REMOVE_INCOMPLETE"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-NET"
+        channel: "CHAN-WSL-CONSOLE"
+        object_flow: "stderr failure report listing what is left, `exit_code: 2` — Network removal tool -> Developer"
+
+  postconditions:
+    - "`remove_agent_net` exited with `exit_code: 0`; no agent container is attached to `agents-net`; the network, all `as_port_*` netdev tables, the `agents_gate` table and all `agent-net:` iptables rules are gone"
+    - "The workspace folders of the removed agents, other containers, other nftables tables and iptables rules, `daemon.json`, the Windows host and `dev-distro` are unchanged"
+    - "`create_agent_net` followed by `create_agent_container` can set the setup up again"
+
+  notes:
+    - "Accepted window (owner decision, SFR-NET-012, SSR-NET-003): during each disarm, between the deletion of the netdev table and the deletion of the neighbour entry and the static forwarding entry, the port may not yet be fully closed at the level of the per-port controls (the gate no longer passes its frames, because its `released` elements were deleted first); the claim that no port is left open does not cover that interval. Accepted because the container is being removed; the disarm order is unchanged."
+    - "Open item (USS-007): the effect of a leftover `as_port_*` table whose veth is already gone is not stated in the concept note; step 6 deletes any such table, a WSL restart clears them too. To be confirmed on the real host."

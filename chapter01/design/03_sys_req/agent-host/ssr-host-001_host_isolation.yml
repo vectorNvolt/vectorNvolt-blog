@@ -1,0 +1,19 @@
+SSR-HOST-001:
+  title: "Keep agent-host free of host drive access, host interoperation and host path"
+  kind: "structural"
+  usecase_step_ref: "USC-001: steps 7, 9, 12"
+
+  statement: "The system shall hold the agent-host distro without access to host drives, without interoperation with host programs and without the host path."
+
+  condition: "For every start of the agent-host distro, from the verified creation until the distro is removed."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+
+  constraints:
+    - "Must show no host drive mounted inside agent-host, checked on the running distro: /mnt/c absent and no drvfs or host-drive 9p mount in /proc/mounts. The empty /mnt/<drive> directories created at the first boot are removed by SFR-HOST-008 (step 9)."
+    - "Must show no host program runnable from inside agent-host, checked on the running distro: the WSLInterop and WSLInterop-late binfmt entries are not registered and the single host program probed, powershell.exe, is not found on the command path (no other host program is probed)."
+    - "Must show none of the mounts injected by WSL regardless of the distro configuration inside agent-host, checked on the running distro: /mnt/wslg, /tmp/.X11-unix, /mnt/wsl and /usr/lib/wsl are not mountpoints. The isolation service written by SFR-HOST-006 removes them before the container engine starts."
+    - "Must show no host graphics device access inside agent-host, checked on the running distro: /dev/dxg absent or masked by the null device (the node is a shared kernel device under WSL and stays), and /usr/lib/wsl/lib and /usr/lib/wsl/drivers empty."
+    - "Must show the resolver file of agent-host as a regular file, not a symbolic link to the host resolver file, with the content written by SFR-HOST-008, and the hostname agent-host, checked on the running distro."
+    - "Must show no host path entries in the search path inside agent-host, checked on the running distro as the user agent-operator, which SFR-HOST-006 establishes and SFR-HOST-009 verifies."

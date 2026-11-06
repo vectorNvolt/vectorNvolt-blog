@@ -1,0 +1,21 @@
+SFR-NET-032:
+  title: "Require the isolated runtime and no restart policy at arming"
+  kind: "functional"
+  usecase_step_ref: "USC-004: alt-1"
+
+  statement: "The system shall refuse to arm a container whose runtime is not runsc or whose restart policy is not exactly no, before it changes anything."
+
+  condition: "When the container creation tool issues an arming request (SFR-NET-008)."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must read the runtime and the restart policy of the container with docker inspect, as inspected state, before loading any control."
+    - "Must refuse a container whose runtime is not runsc."
+    - "Must refuse a container whose restart policy is not exactly `no`; an empty restart policy is refused, because the container creation tool passes --restart no explicitly."
+    - "Must change nothing and report GATED_UNARMED with exit status 1 at IP-AGENT-NET, naming the failed check, when either check fails."
+
+  post_conditions:
+    - "Only a container on the isolated runtime that the engine never restarts by policy has been armed."

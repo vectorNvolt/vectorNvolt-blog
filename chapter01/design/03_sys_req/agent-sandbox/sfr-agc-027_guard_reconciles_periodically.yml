@@ -1,0 +1,22 @@
+SFR-AGC-027:
+  title: "Reconcile all agent containers at start-up and at a fixed interval"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 11 (units installed); the runtime behaviour has no use case step"
+
+  statement: "The system shall check every agent container whose per-agent lock is free once when the guard starts and again at a fixed interval, whatever events were seen."
+
+  condition: "While agent-guard.service runs."
+
+  interface_points:
+    - "IP-AGENT-LIFECYCLE Lifecycle units"
+    - "IP-AGENT-NET Agent network control"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must reconcile once at start and then every AGENT_SANDBOX_GUARD_RECONCILE (default 60 seconds, a Go duration)."
+    - "Must give every agent-* container whose lock is free the same check as an event of SFR-AGC-025 (check-gate; removal on a clean failure; the error path of SFR-AGC-026), keeping the lock through check and removal (SSR-AGC-017); a container whose lock is held is skipped."
+    - "Must apply the orphan reconciliation of SFR-AGC-028 in the same pass."
+    - "Must treat a stopped container as failing the check (check-gate requires it to be running) and so remove it at the next reconcile."
+
+  post_conditions:
+    - "A container that missed its event, or an event the guard could not process, is checked within one interval."

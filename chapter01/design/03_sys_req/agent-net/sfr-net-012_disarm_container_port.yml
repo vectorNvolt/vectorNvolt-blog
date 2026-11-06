@@ -1,0 +1,30 @@
+SFR-NET-012:
+  title: "Disarm the port of one container"
+  kind: "functional"
+  usecase_step_ref: "USC-004: alt-2; USC-007: step 5, alt-2"
+
+  statement: "The system shall remove, keyed by the name of exactly one named container, its elements from the set released of the agents-net gate, and then its per-port table and other port rules, in the order released elements, netdev table, iptables rules, neighbour entries and static forwarding entries, while the port stays locked and isolated. The complete contract is SFR-NET-027."
+
+  condition: "When asked to disarm a container, by `create_agent_net disarm <container>` per agent container inside `remove_agent_net`, or as the clean slate of `arm` (SFR-NET-028)."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+    - "IP-DOCKER-ENGINE Docker engine"
+
+  constraints:
+    - "Must treat a missing `agents-net` as nothing to disarm and succeed (`exit_code: 0`), and a missing gate table or an agent MAC not in `released` as already removed."
+    - "Must not treat a missing container as a failure at IP-AGENT-NET: the name-keyed cleanup continues with what is left under the name (running, stopped and removed containers are all disarmed the same way); inside `remove_agent_net` a container that is gone by then is skipped as already removed."
+    - "Must find the port from the live veth of the container and, for a stopped or removed container, by the table name `as_port_<id>`, the iptables tag `agent-net:<container>` and the elements of `released` whose comment is the container name."
+    - "Must delete, in this order, the elements of the set `released` of the table `agents_gate` (so the gate closes the port first; every element whose comment is the container name, and every element with a MAC recovered from docker for a live container or from the accept rules of the port table, whatever its comment), then the netdev table `as_port_<id>`, then the iptables rules in `DOCKER-USER` and `INPUT` whose comment is exactly `agent-net:<container>`, then the permanent neighbour entry of the container (also a PERMANENT entry for a known container IP whose lladdr belongs to no live agents-net endpoint, i.e. left by an uncleanly disarmed container; an entry owned by another live endpoint stays, the live endpoint MACs being those of the containers on agents-net with the container being removed excluded) and the static forwarding entry of the veth if it still exists."
+    - "Must leave `isolated on`, `locked on` and `learning off` on the veth; after the table is deleted the port stays closed by `locked on` and port isolation, and is never unlocked."
+    - "Accepted window (owner decision): between the deletion of the netdev table and the deletion of the neighbour entry and the static forwarding entry the port may not yet be fully closed at the level of the per-port controls, because the table is gone before the remaining port rules, the neighbour entry and the static entry are removed and only `locked on` and port isolation hold there; the gate no longer passes the frames of the port, because its released elements were deleted first. The owner accepts this because the container is being removed. The disarm order above is not changed."
+    - "Must tolerate every table, rule or entry that is already absent and be safe to repeat."
+    - "Must leave the tables and rules of every other port untouched."
+    - "Must count a neighbour entry as left when its lladdr is the container's MAC, or it is PERMANENT and owned by no live endpoint."
+    - "Must never delete or change the table `agents_gate`, its chains or the rule `agent-net:gate`; only set elements of `released` are deleted."
+    - "Must read back that none of the released elements, table, rules, neighbour entries or forwarding entries is left and report `disarmed`, or `nothing to disarm` when none existed."
+    - "Must, when a deletion or the read-back fails, return `exit_code: 2`, state `DISARM_INCOMPLETE`; the table or rules may be left and the disarm can be run again."
+
+  post_conditions:
+    - "None of the container's released elements, table, rules, neighbour entries or forwarding entries is left at IP-AGENT-NET."
+    - "Other armed containers stay armed."

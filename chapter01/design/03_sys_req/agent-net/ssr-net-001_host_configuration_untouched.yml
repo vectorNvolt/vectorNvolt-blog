@@ -1,0 +1,17 @@
+SSR-NET-001:
+  title: "Leave the container engine configuration untouched"
+  kind: "structural"
+  usecase_step_ref: "USC-004: preconditions, step 3, step 5, postconditions"
+
+  statement: "The system shall leave the container engine's configuration unchanged and the container engine neither reloaded nor restarted, and leave the Windows host and the development distribution unchanged."
+
+  condition: "For every run of the network creation tool, from invocation to exit."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must show the configuration of the engine, `daemon.json`, unchanged after the run compared with before the run, as inspected state at IP-DOCKER-ENGINE (SHA-256 recorded before, or absence; the comparison itself is the check of SFR-NET-006)."
+    - "Must show the engine neither reloaded nor restarted by the run at IP-DOCKER-ENGINE (the engine start identity, read through the engine process-id file and /proc/<pid>/stat, is recorded before and compared after; a reload that keeps the process is not detected by it)."
+    - "Must read `daemon.json` (default /etc/docker/daemon.json), the engine process-id file (default /var/run/docker.pid) and the control socket (default /var/run/docker.sock) at the paths given by the environment variables AGENT_NET_DAEMON_JSON, AGENT_NET_DOCKER_PID_FILE and AGENT_NET_DOCKER_SOCKET when they are set non-blank (SFR-NET-002); the reads are read-only."
+    - "Must show the Windows host and the development distribution unchanged by the run."

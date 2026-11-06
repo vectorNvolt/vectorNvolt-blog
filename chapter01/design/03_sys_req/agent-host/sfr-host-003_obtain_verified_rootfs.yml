@@ -1,0 +1,23 @@
+SFR-HOST-003:
+  title: "Obtain a signature-anchored, integrity-verified Ubuntu 26.04.1 LTS (resolute) WSL base filesystem"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 4 (exception err-2)"
+
+  statement: "The system shall obtain the Ubuntu 26.04.1 LTS (resolute) WSL image ubuntu-26.04.1-wsl-amd64.wsl (a gzip-compressed tar) from https://releases.ubuntu.com/26.04.1/ and accept it only when its SHA-256 matches its entry in SHA256SUMS from the same directory and SHA256SUMS itself carries a good signature (SHA256SUMS.gpg) by the pinned Ubuntu CD image signing key."
+
+  condition: "When the reference SHA-256 of the agent tool builds has been obtained."
+
+  interface_points:
+    - "IP-ROOTFS-PROVIDER Remote base filesystem source"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must retrieve the archive from IP-ROOTFS-PROVIDER over a secure transport."
+    - "Must retrieve SHA256SUMS and SHA256SUMS.gpg from the same directory of IP-ROOTFS-PROVIDER as the archive, unless the archive URL is overridden by the environment variable AGENT_HOST_ROOTFS_URL (then SHA256SUMS is taken from the directory of that URL) or the SHA256SUMS URL by AGENT_HOST_ROOTFS_SHA256SUMS_URL; the signature URL is always the SHA256SUMS URL with .gpg appended, and the signature and checksum verification below apply unchanged to overridden URLs."
+    - "Must accept SHA256SUMS only when SHA256SUMS.gpg is a good signature by the Ubuntu CD image signing key with the fingerprint 843938DF228D22F7B3742BC0D94AA3F0EFE21092, which is pinned and shipped with the tool and not fetched from IP-ROOTFS-PROVIDER."
+    - "Must verify the SHA-256 checksum of the retrieved archive against its entry in the accepted SHA256SUMS before the archive is used."
+    - "Must, when the archive, SHA256SUMS or SHA256SUMS.gpg cannot be retrieved after retries, the signature is not good, or the archive fails the checksum check, stop, write the failure to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 1, with no distro created."
+
+  post_conditions:
+    - "No unverified archive has been used for distro creation."
+    - "A verified archive is available for distro creation when the checksum matched."

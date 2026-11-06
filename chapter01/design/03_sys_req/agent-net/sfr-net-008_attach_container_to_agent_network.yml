@@ -1,0 +1,27 @@
+SFR-NET-008:
+  title: "Require the container attached at creation and close its port"
+  kind: "functional"
+  usecase_step_ref: "USC-004: alt-1"
+
+  statement: "The system shall require that the container named in an arming request was created attached to the agent network and is paused behind the agents-net gate, and shall close its port before anything can let a frame through."
+
+  condition: "When the container creation tool issues an arming request for a container that was created with --network agents-net --runtime runsc --restart no, started and paused with docker pause."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must verify with docker inspect, before loading any control, that the container exists, is running and is paused, is attached to agents-net and to no other network (no none, no bridge), has runtime runsc (SFR-NET-032) and has restart policy exactly no (an empty restart policy is refused); otherwise it must change nothing and report GATED_UNARMED with exit status 1 at IP-AGENT-NET."
+    - "Must verify before loading any control that the agents-net gate (SFR-NET-025) is present; otherwise it must change nothing and report GATED_UNARMED with exit status 1, naming that the network predates the gate and must be recreated (remove_agent_net, then create_agent_net; agent_lifecycle restore does this at every dockerd start, USS-001 unit agent-restore.service)."
+    - "Must not attach the container to any network: arming never runs docker network connect or disconnect, because the container is attached at creation (gVisor does not see interfaces added after the start)."
+    - "Must keep the container paused (docker pause) during the whole arming run; its agents-net port is already closed by the gate (its MAC is not in the set released), and the pause keeps it from sending before its own port table is loaded."
+    - "Must find the host-side veth of the container from the host, never from inside the sandbox: the container PID from docker inspect, the peer interface index read in the container network namespace and matched to the veth on the host."
+    - "Must load, for that veth, the per-port table netdev as_port_<id> with an ingress chain and an egress chain bound to the veth, both with policy drop and without accept rules, so that the port is dropped in both directions until it is released."
+    - "Must build the arming from empty state: after the container preconditions and before the port is identified and closed, run the clean slate of SFR-NET-028 (the name-keyed disarm of SFR-NET-027), so that nothing left by an earlier container or run of that name is inherited. A port table bound to the live veth of another container is refused with exit status 1."
+    - "Must remove the agent MAC from the set released of the gate again when loading the closed port table (an absent entry is not an error), so that a MAC left in released cannot make a re-arm inherit an open gate."
+    - "Must touch only the table of the named port, never the tables or rules of other ports and never the gate except to remove set elements of the named container (clean slate, above, SFR-NET-027) and to add the agent MAC at release (SFR-NET-010); the gate's table, chains and the rule agent-net:gate are never touched."
+
+  post_conditions:
+    - "The container is attached to the agent network, as it was created, and is still paused."
+    - "The port of the container is closed twice: by the gate (MAC not in released) and by table as_port_<id> with both chains at policy drop and no accept rule."

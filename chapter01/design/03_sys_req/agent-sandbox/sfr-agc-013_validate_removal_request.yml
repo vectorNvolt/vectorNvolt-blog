@@ -1,0 +1,20 @@
+SFR-AGC-013:
+  title: "Validate the removal request before any engine call"
+  kind: "functional"
+  usecase_step_ref: "USC-006: step 1, err-1, err-10"
+
+  statement: "The system shall accept a removal request only with a valid agent identity and at most the options --purge-workspace and --purge, each at most once."
+
+  condition: "When the developer starts the removal of an agent container."
+
+  interface_points:
+    - "IP-CLI-REMOVE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must apply the identity rule of SFR-AGC-001."
+    - "Must reject any argument other than the identity, --purge-workspace and --purge, with a usage error at IP-CLI-REMOVE-AGENT-CONTAINER and exit status 1 and exit state NOT_REMOVED."
+    - "Must accept the identity first, then --purge-workspace and --purge in either order, each at most once, and reject any other count, repetition or argument; the usage text is `usage: remove_agent_container <agentID> [--purge-workspace] [--purge]` followed by the identity rule. The identity is validated before any path is built, so --purge can only ever delete /var/lib/agent-sandbox/<id>. The tool does not check its own effective user id; it is meant to be invoked as root (wsl.exe -d agent-host -u root -e remove_agent_container), which is a deployment convention, not enforced by the tool."
+    - "Must not call the engine, the Agent network control or the filesystem before the request is valid."
+
+  post_conditions:
+    - "A rejected request has changed nothing."

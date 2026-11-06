@@ -1,0 +1,17 @@
+SSR-AGC-009:
+  title: "Grant the agent container only an explicit capability allowlist"
+  kind: "structural"
+  usecase_step_ref: "USC-002: steps 4, 9"
+
+  statement: "The system shall hold every agent container with every capability removed except those on an explicit allowlist."
+
+  condition: "For every agent container, from its creation until it is removed."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must show the capability set of the container holding no capability other than SYS_ADMIN, SYS_CHROOT, MKNOD, CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETUID, SETGID, SETPCAP, SETFCAP, KILL, AUDIT_WRITE, NET_BIND_SERVICE and SYS_RESOURCE, inspected on the container at IP-DOCKER-ENGINE, which SFR-AGC-006 establishes."
+    - "Must show every capability removed by default and each retained capability granted by name, so that a capability is present only if it is written on the allowlist."
+    - "Must show NET_RAW absent from the capability set of the container."
+    - "Must show no request that grants all capabilities."

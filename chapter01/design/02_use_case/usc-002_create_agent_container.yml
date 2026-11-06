@@ -1,0 +1,342 @@
+# ==============================================================================
+# USC-002 — derived from USS-002 (design/01_user_story/uss-002_create_agent_container.md)
+# Template: tmpl_usecase_v2.yml
+# Interaction points and channels are defined in
+# design/00_system_boundary/interaction_points.yml (items marked `# proposed`
+# there are not yet confirmed by USS-002).
+# `# TBD` = undefined in USS-002 and its source docs.
+# `# proposed` = defined here or in interaction_points.yml, not in USS-002.
+# `# open` = conflict or gap inside USS-002 that this use case cannot resolve.
+# `requirement_refs` on a step or exception flow lists the requirements
+# (design/03_sys_req/agent-sandbox/) that realise it; each requirement names the
+# step back in its `usecase_step_ref`.
+# Terms: arming = host-side controls applied and verified (step 6); release = unpause (step 7).
+# Step mapping: the tool runs 14 numbered steps (progress lines `[n/14]`: validate, lock, wait for ready,
+# preconditions, workspace, state, clean leftovers, create and start, pause, arm, release, check resolv.conf,
+# verify, report); this use case keeps its 10 steps: the lock and the readiness wait are part of step 2, the
+# state preparation and the removal of leftovers (tool step 7, SFR-AGC-029) are part of step 3.
+# The runtime behaviour of `agent_lifecycle guard` (SFR-AGC-025 to SFR-AGC-028, SSR-AGC-017, SSR-AGC-018) is not a
+# step of this use case: it is installed by USC-001 step 11 and acts on the container after this run; USC-002 only
+# holds the per-agent lock against it (step 2) and releases the container only after the arming (step 7).
+# ==============================================================================
+
+USC-002:
+  title: "Create an isolated gVisor agent container with one command"
+  summary: "The developer runs a single Go executable as root inside `agent-host` (from host Windows via `wsl.exe`) with an `agentID`; it creates a gVisor (`runsc`) agent container with its own workspace folder, creates it attached to the agent network (closed by the agents-net gate of USS-004), pauses it and verifies the pause, has `create_agent_net arm` (USS-004) apply the host-side controls and open its port, and releases (unpauses) it only after the arming is verified."
+
+  actors:
+    primary: "Developer"
+    supporting:
+      - "Container creation tool (Go executable `create_agent_container`, run as root)"
+      - "Docker engine in `agent-host` (`runsc` runtime)"
+      - "Agent container"
+      - "Agent network (`agents-net`)"
+      - "Agent network control (`create_agent_net arm <container>`, USS-004)"
+
+  interaction_points:
+    - ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+      direction: "inbound"
+      type: "cli_entrypoint"
+      boundary: "Developer on host Windows -> `wsl.exe -d agent-host -u root -e` -> Go executable (`create_agent_container`) in `agent-host`"
+      transport: "POSIX process execution / standard I/O streams (relayed by `wsl.exe`)"
+      role: "primary entry (command invocation with `agentID`, as root) and exit (success/failure report, exit code)"
+    - ip_ref: "IP-DOCKER-ENGINE"
+      direction: "outbound"
+      type: "subprocess_cli"
+      boundary: "Go process -> Docker engine (`docker` CLI or Engine API) in `agent-host`"
+      transport: "Child process stdio or local Docker socket (root access to the socket)"
+      role: "tool checks the `runsc` runtime, the existence of the network, the image and an existing container; creates, starts, pauses, unpauses and inspects the container; checks the container's `/etc/resolv.conf` (a read-only mount of the host file) with an exec as uid 0 after the unpause (`resolv_conf_check_root`); runs the `id`, `id -nG` and `/etc/resolv.conf` checks as uid 1001; removes the container it created after a failure (after the disarm, when arming had begun)"
+    - ip_ref: "IP-AGENT-WORKSPACE-FS"
+      direction: "outbound"
+      type: "filesystem"
+      boundary: "Go process -> `agent-host` filesystem (`/home/agent-operator/Workspace-Agents/<agentID>`)"
+      transport: "POSIX filesystem calls; bind mount into the container"
+      role: "tool checks the `Workspace-Agents` root, creates the per-agent workspace folder and its `.output` subfolder (as root, then `chown` of both to `agent-operator`), mounted read-write into the container; also prepares the per-agent Claude state `/var/lib/agent-sandbox/<agentID>/claude` (mounted read-write at `/home/agent/.claude`) and the host DNS file `/etc/agent-sandbox/resolv.conf` (mounted read-only at `/etc/resolv.conf`), and holds the per-agent lock `/run/agent-sandbox/<agentID>.lock` and reads the ready marker `/run/agent-sandbox/ready` (written by `agent_lifecycle restore`)"
+    - ip_ref: "IP-AGENT-NET"
+      direction: "outbound"
+      type: "host_network_control"
+      boundary: "Go process -> Agent network control `create_agent_net arm <container>` (USS-004) -> host Docker bridge network / host network namespace in `agent-host`"
+      transport: "Subprocess calls `create_agent_net disarm agent-<agentID>` and `create_agent_net released` / `evict <mac>` before the creation (step 3), `create_agent_net arm agent-<agentID>`, `create_agent_net check-gate agent-<agentID>` and, on failure, `create_agent_net disarm agent-<agentID>`; the existing network `agents-net` and its gate are created by USS-004 (the tool does not create them); the container is already attached at creation, and the Agent network control applies the host-side controls and releases the port"
+      role: "before the creation the tool removes the leftover network state of the agent name (name-keyed `disarm`) and the orphaned elements of the set `released` (SFR-AGC-029); tool calls the Agent network control while the container is paused; it loads the per-port table, applies the port flags and host-side rules, verifies them and releases the port (agent MAC added to the gate set `released`); the tool then reads the controls back with `check-gate` (`port_check`); after an arming failure the tool calls `disarm` (`port_disarm`) before it removes the container"
+
+  preconditions:
+    - "USC-001 is complete: `agent-host` exists with Docker and gVisor installed, and `create_agent_container` is installed at `/usr/local/bin/create_agent_container` (`root:root`, mode 755, SHA-256 checked)"
+    - "Docker `daemon.json` already registers `runsc` (raw sockets disabled; installed and registered by USS-001); the tool never creates or modifies it, installs `runsc` or restarts the daemon"
+    - "The `Workspace-Agents` root exists on `agent-host` at `/home/agent-operator/Workspace-Agents`, is a directory (not a symbolic link) and is owned by `agent-operator` (SFR-AGC-023). The developer creates it manually as `agent-operator` before the first run (a prerequisite, not created by any tool); the tool never creates it and creates only the per-agent subfolder `<agentID>`, mounted read-write at `/workspace` in the container"
+    - "The shared agent network `agents-net` is created by USS-004 together with its gate and must exist; the tool does not create it. A network that predates the gate is refused at step 6 and must be recreated (`remove_agent_net`, then `create_agent_net`); `agent_lifecycle restore` does this automatically at every dockerd start"
+    - "The agent network and its host-side controls are provided by USS-004 (Agent network control `create_agent_net arm`)"
+    - "`agent-restore.service` (installed by USC-001) has run since the last dockerd start and written `/run/agent-sandbox/ready` with dockerd's current MainPID; the tool waits up to 60 s for it (step 2)"
+    - "The agent image `agent-image:latest` is provided by USS-003 and must exist locally; the tool neither builds nor pulls it"
+    - "No container for the same `agentID` exists"
+
+  main_flow:
+    - step: 1
+      actor: "Developer"
+      action: "Runs `wsl.exe -d agent-host -u root -e create_agent_container <agentID>` from host Windows; the tool runs as root inside `agent-host`, so `agent-operator` needs neither sudo nor `docker` group membership. The tool takes exactly one argument; before each step it prints a progress line `[n/14] <step name>` to stdout (log level `AGENT_LOG_LEVEL` INFO, the default, or DEBUG)."
+      requirement_refs: ["SFR-AGC-001", "SSR-AGC-003", "SSR-AGC-006"]
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "command invocation `create_agent_container`, args: [agentID] — Developer -> Container creation tool"
+    - step: 2
+      actor: "Container creation tool"
+      action: "Validates `agentID`, then takes the per-agent lock `/run/agent-sandbox/<agentID>.lock` (non-blocking `flock`, held until the run ends, so that `agent_lifecycle guard` ignores the start, unpause and network events of this run and skips the container at its reconcile; a lock held by another create or remove run or by the guard fails the run, err-14; SSR-AGC-017), then waits up to 60 s (`AGENT_SANDBOX_READY_TIMEOUT`) until `/run/agent-sandbox/ready` exists and holds dockerd's current MainPID (`systemctl show -p MainPID --value docker.service`) before any docker call (err-15). It then checks the preconditions in this order, stopping at the first failing group with no side effect: operation `runtime_check` (`docker info --format '{{json .Runtimes}}'`, requires a `runsc` key; an engine that does not answer fails here); no container `agent-<agentID>` exists in any state; then the shared prerequisites, all checked and every missing one named: `agents-net` exists, `agent-image:latest` exists locally, and the `Workspace-Agents` root exists, is a directory (not a symbolic link) and is owned by `agent-operator`. Only the existence of `agents-net` is checked here; the gate is not checked before the start and is verified by `check-gate` at step 6 (and afterwards by the guard). Reports a mismatch and stops; never repairs host configuration."
+      requirement_refs: ["SFR-RTC-001", "SFR-AGC-002", "SFR-AGC-003", "SFR-AGC-023", "SSR-AGC-005", "SSR-AGC-007", "SSR-AGC-008", "SSR-AGC-017", "SSR-AGC-018"]
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`runtime_check` and existence checks (network, image, container); results and exit status — Container creation tool -> Docker engine, result back"
+    - step: 3
+      actor: "Container creation tool"
+      action: "Creates the per-agent workspace folder `/home/agent-operator/Workspace-Agents/<agentID>` and its `.output` subfolder as root and hands both to `agent-operator` (`chown` of the two folders themselves, not recursive). An existing folder is reused; a missing `.output` subfolder is created; both folders are handed to `agent-operator` whether created or reused. This use case creates no other content in the workspace. It then prepares the persistent Claude state: `/var/lib/agent-sandbox` and `/var/lib/agent-sandbox/<agentID>` `root:root` 0711, `/var/lib/agent-sandbox/<agentID>/claude` `1001:1001` 0700 (created if missing, kept with its content if present, symlinks refused), and the host DNS file `/etc/agent-sandbox/resolv.conf` (`nameserver 1.1.1.1` and `nameserver 9.9.9.9`, `root:root` 0644, rewritten if the content differs). Last, before the container is requested (tool step 7 of 14, after the duplicate refusal of step 2), it removes the leftover network state: `create_agent_net disarm agent-<agentID>` (name-keyed, idempotent, exit 0 when nothing is left) and the orphan reconciliation of the set `released` (`create_agent_net released`: an element without comment is evicted with `evict <mac>`, an element whose container does not exist is disarmed by its name; SFR-AGC-028). It never touches an existing container, because none exists for this name. A failing call stops the run before `docker create` (state NOT_CREATED, exit 2; err-16)."   # the leftover removal is part of step 3 by the step mapping above
+      requirement_refs: ["SFR-AGC-004", "SFR-AGC-029", "SFR-AGC-028", "SSR-AGC-003", "SSR-AGC-004"]
+      interaction_point:
+        ip_ref: "IP-AGENT-WORKSPACE-FS"
+        channel: "CHAN-FS-WORKSPACE"
+        object_flow: "folder creation and `chown` at `Workspace-Agents/<agentID>` and `Workspace-Agents/<agentID>/.output`; then `disarm` and `released` / `evict` requests for the agent name through IP-AGENT-NET — Container creation tool -> agent-host filesystem, Agent network control"
+    - step: 4
+      actor: "Container creation tool"
+      action: "Runs operation `container_create` (`docker create --runtime=runsc --network agents-net --restart no --cap-drop ALL --cap-add SYS_ADMIN --cap-add SYS_CHROOT --cap-add MKNOD --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER --cap-add FSETID --cap-add SETUID --cap-add SETGID --cap-add SETPCAP --cap-add SETFCAP --cap-add KILL --cap-add AUDIT_WRITE --cap-add NET_BIND_SERVICE --cap-add SYS_RESOURCE --security-opt no-new-privileges --memory 4g --cpus 2 --pids-limit 512 --tmpfs /tmp:rw,noexec,nosuid,size=512m --tmpfs /var/lib/docker:rw,nosuid,size=2g --name agent-<agentID> -v <ws>:/workspace:rw -v /var/lib/agent-sandbox/<agentID>/claude:/home/agent/.claude:rw -e CLAUDE_CONFIG_DIR=/home/agent/.claude -v /etc/agent-sandbox/resolv.conf:/etc/resolv.conf:ro agent-image:latest`, WITHOUT `--init` and without `--user`; then `docker start`). There are exactly three host mounts: the workspace (read-write), the Claude state (read-write, so login and conversation history survive recreating the container) and the host DNS file (read-only, so Docker does not generate its own `/etc/resolv.conf` and the agent cannot change it; checked inside the container in step 8, SFR-AGC-024; content and mode SFR-NET-020); no credential, signing key or keyring is mounted (SSR-AGC-013). The two `tmpfs` mounts are not host paths; together (2g + 512m) they stay strictly below the memory limit by the fixed values in the tool's configuration (SSR-AGC-012); the tool does not compute the sum at run time. The image's `tini` entrypoint runs as PID 1 (root) and starts the in-container `dockerd` as root (the image's own start command, unchanged); this is an idle init, and no agent process runs at container start (SFR-AGC-031). The container is attached to `agents-net` from its creation (and to no other network), because Docker rejects `network connect` while `none` is attached and gVisor does not see interfaces added after the start (verified on the real host, 2026-10-31); it has no reachability, because its MAC is not in the set `released` of the `agents-net` gate (SSR-AGC-002)."   # proposed: PID limit and tmpfs sizing (SSR-AGC-012); not set by USS-002
+      requirement_refs: ["SFR-AGC-006", "SFR-AGC-031", "SSR-AGC-001", "SSR-AGC-002", "SSR-AGC-003", "SSR-AGC-004", "SSR-AGC-009", "SSR-AGC-010", "SSR-AGC-011", "SSR-AGC-012", "SSR-AGC-013", "SSR-AGC-014"]
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`container_create` with runtime `runsc`, `--restart no`, capability allowlist, `no-new-privileges`, resource bounds (memory, CPU, PIDs, tmpfs), mounts (`/workspace` rw, `/home/agent/.claude` rw, `/etc/resolv.conf` ro, explicit modes), `CLAUDE_CONFIG_DIR`, network `agents-net` (gated closed); `container_start` — Container creation tool -> Docker engine"
+    - step: 5
+      actor: "Container creation tool"
+      action: "Runs operation `container_pause` (`docker pause agent-<agentID>`) before the arming, then verifies the pause on the inspected container (`docker inspect --format '{{.State.Paused}}' agent-<agentID>` must read `true`). This is the pause gate: only when the pause was executed AND verified does the flow continue; otherwise the tool stops (err-10) and neither arms nor unpauses."   # proposed operation name
+      requirement_refs: ["SFR-AGC-012", "SSR-AGC-002"]
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`container_pause` for `agent-<agentID>` and `State.Paused` read-back; result — Container creation tool -> Docker engine, result back"
+    - step: 6
+      actor: "Container creation tool"
+      action: "While the container is paused, calls the Agent network control `create_agent_net arm agent-<agentID>` (USS-004), which requires the gate, the attachment made at creation (it attaches nothing), the runtime `runsc` and the restart policy exactly `no` (otherwise it refuses with exit 1 before it changes anything), starts from a clean slate (name-keyed disarm of every leftover of the container name), loads the per-port table, applies the port flags and host-side rules (agent-to-agent isolation, fixed network identity, egress allowlist: DNS rule UDP and TCP 53 to `1.1.1.1` and `9.9.9.9`, and endpoint rule TCP 443 to `api.anthropic.com` and `platform.claude.com`), verifies them and releases the port (agent MAC added to `released`, together with the port accept rules in one atomic transaction). The Agent network control applies the controls (and verifies them itself); after it exits 0 the tool reads the controls back through IP-AGENT-NET with `create_agent_net check-gate agent-<agentID>` (`port_check`, read-only) and requires exit 0 (all controls present and verified, including the mark on the accept rules and the container confinement control: restart policy `no`, `agents-net` only, running; the gate present and the MAC in `released`) before step 7; exit 1 (prerequisite) or 2 (control missing or differing) is an arming failure (err-8), and the per-control report lines on stdout are copied into the failure report. Exit codes and report format: USC-004 alt-3. The controls are host-side only; the agent cannot see or clear them."
+      requirement_refs: ["SFR-AGC-007", "SSR-AGC-002", "SSR-AGC-007"]
+      interaction_point:
+        ip_ref: "IP-AGENT-NET"
+        channel: "CHAN-AGENT-NET"
+        object_flow: "`arm` request and `check-gate` read-back for `agent-<agentID>`; arming result — Container creation tool -> Agent network control -> host network namespace in agent-host, result back"
+    - step: 7
+      actor: "Container creation tool"
+      action: "Only after the arming is verified (step 6), releases the container by running operation `container_unpause` (`docker unpause agent-<agentID>`). No agent process runs at container start (step 4), so the agent is started only afterwards, through `docker exec -u 1001` (uid only, so the group `docker` is kept) by `enter_agent` (SFR-AGC-031), and only after the sequence pause, arm, check-gate, unpause has passed; the tool's own first exec is step 8 (a fixed probe, not agent work), and no agent work is started before success is reported (step 10)."   # proposed operation name
+      requirement_refs: ["SFR-AGC-021", "SFR-AGC-031", "SSR-AGC-002"]
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`container_unpause` for `agent-<agentID>`; result — Container creation tool -> Docker engine, result back"
+    - step: 8
+      actor: "Container creation tool"
+      action: "Immediately after the unpause, runs operation `resolv_conf_check_root`: an exec as uid 0 (`docker exec -u 0:0 agent-<agentID> cat /etc/resolv.conf`); nothing is written in the container. The output must contain `nameserver 1.1.1.1` and `nameserver 9.9.9.9` and must not contain `127.0.0.11` (Docker's embedded resolver, which gVisor does not serve) (SFR-AGC-024, SFR-NET-020). Chosen mechanism and why: the file is a read-only bind mount of the host file prepared in step 3 (step 4), so Docker does not generate its own file and nothing in the container can change it; this replaces the earlier exec write, which Docker's generated file made unreliable. `docker exec` does not work on a paused container, so the check cannot precede the unpause. No agent work is started before success is reported (step 10). A non-zero exec exit status or a content mismatch is a failure (err-13); owner, mode and write access are then read back in step 9."   # proposed operation name; that `runsc` accepts the read-only bind mount is unverified (open item in the notes)
+      requirement_refs: ["SFR-AGC-024", "SFR-NET-020"]
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`resolv_conf_check_root` exec as uid 0 for `agent-<agentID>`; file content and exit status — Container creation tool -> Docker engine, result back"
+    - step: 9
+      actor: "Container creation tool"
+      action: "Runs operation `container_inspect` (`docker container inspect --format '{{json .}}' agent-<agentID>`, parsed for the fields below) and requires the actual values: running `true`, paused `false`, runtime `runsc`, no user; `CLAUDE_CONFIG_DIR=/home/agent/.claude` in the environment; CapDrop `ALL`; CapAdd exactly the 15 capabilities of step 4 (compared by name, without a `CAP_` prefix); SecurityOpt `no-new-privileges`; Memory 4294967296; NanoCpus 2000000000; PidsLimit 512; restart policy name `no`; Tmpfs exactly `/tmp` (`rw,noexec,nosuid,size=512m`) and `/var/lib/docker` (`rw,nosuid,size=2g`); Mounts exactly three binds, `<ws>` at `/workspace` (read-write), `/var/lib/agent-sandbox/<agentID>/claude` at `/home/agent/.claude` (read-write) and `/etc/agent-sandbox/resolv.conf` at `/etc/resolv.conf` (read-only); NetworkSettings.Networks has exactly one key, `agents-net` (the container is attached to no other network, including `none`/`bridge`). It also checks that `/home/agent-operator/Workspace-Agents/<agentID>` and `.output` exist and are owned by `agent-operator`; then runs `docker exec -u 1001 agent-<agentID> id` and `docker exec -u 1001 agent-<agentID> id -nG` and expects uid 1001, gid 1001 and the in-container group `docker` among the groups (provided by the image, SSR-IMG-017). It then runs operation `resolv_conf_check` (`docker exec -u 1001 agent-<agentID> cat /etc/resolv.conf` and `stat -c '%U:%G %a' /etc/resolv.conf`) and requires content exactly the two lines `nameserver 1.1.1.1` and `nameserver 9.9.9.9`, owner `root:root`, mode 644, and no write access for uid 1001 (SFR-NET-020). Any mismatch or unreadable state is a failure (err-12); all mismatches are listed. Not verified: the effective, permitted, inheritable, ambient and bounding capability sets of any process, and that the agent user is the only member of the `docker` group (only membership is checked)."
+      requirement_refs: ["SFR-AGC-009", "SSR-AGC-001", "SSR-AGC-004", "SSR-AGC-007", "SSR-AGC-009", "SSR-AGC-010", "SSR-AGC-011", "SSR-AGC-012", "SSR-AGC-013", "SSR-AGC-014", "SFR-AGC-007", "SSR-IMG-017", "SFR-NET-020"]
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`container_inspect` (state, runtime, user, capabilities, security options, resource limits, restart policy, tmpfs, mounts, attached networks) and `id` / `id -nG` exec as 1001 (uid, gid, groups including `docker`) and `resolv_conf_check` (`/etc/resolv.conf` content, owner, mode); results — Container creation tool -> Docker engine, result back"
+    - step: 10
+      actor: "Container creation tool"
+      action: "Reports success on stdout with the fixed text `agent container agent-<agentID> created and running (runtime runsc, network armed)` followed by `workspace: <workspace folder> -> /workspace` (the text is not derived from the verified state), and returns `exit_code: 0`. The report does not start the agent (SFR-AGC-031); the lock is released when the run ends."
+      requirement_refs: ["SFR-AGC-010", "SSR-AGC-005"]
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stdout success report, `exit_code: 0` — Container creation tool -> Developer"
+
+  # Exit codes 1 (usage or prerequisite) and 2 (runtime failure) are defined by SFR-AGC-011.
+  # Containment (err-10 to err-13): a container is never left silently running after a failure.
+  exception_flows:
+    - id: "err-1"
+      at_step: 1
+      condition: "Missing or invalid `agentID` (`agentID` must match `^[a-z][a-z0-9-]{0,30}$`; the container name is `agent-<agentID>`)"
+      system_reaction: "Usage error on stderr, nothing is created, returns `exit_code: 1`."
+      requirement_refs: ["SFR-AGC-001", "SFR-AGC-011"]
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr usage error, `exit_code: 1` — Container creation tool -> Developer"
+    - id: "err-2"
+      at_step: 2
+      condition: "`runsc` not registered with Docker (daemon.json mismatch), or Docker engine unavailable"
+      system_reaction: "Report and stop: reports the mismatch on stderr and stops without modifying `daemon.json`; nothing is created; returns `exit_code: 1`."
+      requirement_refs: ["SFR-RTC-002", "SFR-AGC-011"]
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Container creation tool -> Developer"
+    - id: "err-3"
+      at_step: 2
+      condition: "A container for `agentID` already exists"
+      system_reaction: "Report and stop on stderr; the existing container is not reused and not modified; returns `exit_code: 1`."
+      requirement_refs: ["SFR-AGC-002", "SFR-AGC-011"]
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr report naming the existing container, `exit_code: 1` — Container creation tool -> Developer"
+    - id: "err-4"
+      at_step: 2
+      condition: "Network `agents-net` does not exist"
+      system_reaction: "Report and stop on stderr; the tool does not create the network; nothing is created; returns `exit_code: 1`."
+      requirement_refs: ["SFR-AGC-003", "SFR-AGC-011"]
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Container creation tool -> Developer"
+    - id: "err-5"
+      at_step: 2
+      condition: "Agent image `agent-image:latest` missing locally"
+      system_reaction: "Report and stop on stderr; the tool neither builds nor pulls the image; nothing is created; returns `exit_code: 1`."
+      requirement_refs: ["SFR-AGC-003", "SFR-AGC-011"]
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Container creation tool -> Developer"
+    - id: "err-6"
+      at_step: 2
+      condition: "The `Workspace-Agents` root does not exist, is not a directory (or is a symbolic link) or is not owned by `agent-operator`"
+      system_reaction: "Report and stop on stderr naming the failed check; the tool does not create or repair the root; no side effect (no workspace folder, no container); returns `exit_code: 1`."
+      requirement_refs: ["SFR-AGC-023", "SFR-AGC-011"]
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Container creation tool -> Developer"
+    - id: "err-7"
+      at_step: 3
+      condition: "Workspace folder or its `.output` subfolder cannot be created, or either cannot be handed to `agent-operator` (an already existing folder is reused and is not an error)"
+      system_reaction: "Reports on stderr, nothing is started, returns `exit_code: 2`."
+      requirement_refs: ["SFR-AGC-005", "SFR-AGC-011"]
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 2` — Container creation tool -> Developer"
+    - id: "err-8"
+      at_step: 6
+      condition: "Network arming or verification by `create_agent_net arm` fails (including a network without the gate, or the binary cannot be run), or the read-back by `create_agent_net check-gate` exits non-zero (1 or 2) or cannot be run. Exit 1 and 2 are not distinguished."
+      system_reaction: "The container stays paused and closed by the gate (it never ran agent work). The tool first disarms the host-side controls with `create_agent_net disarm agent-<agentID>` and requires exit 0 (the same disarm as USC-006, SFR-AGC-016); only then it removes the container (`container_remove`: unpaused first, because `runsc` cannot kill a paused sandbox, then `docker rm -f`; the port is already disarmed). If the disarm does not exit 0, nothing is removed: the container is left paused behind its controls (state DISARM_FAILED) and the tool reports it. If the disarm succeeded and the removal fails, the container is named on stderr (state REMOVE_FAILED). Only the container created by this run is removed; the workspace folder and any resource the run did not create are kept. The tool reports the failed control on stderr and returns `exit_code: 2`. Recovery is to run `create_agent_container` again (remove and recreate), or `remove_agent_container` when the disarm or the removal failed."
+      requirement_refs: ["SFR-AGC-008", "SFR-AGC-022", "SFR-AGC-011", "SSR-AGC-002"]
+      exit_state: "REMOVED after a successful disarm and removal; DISARM_FAILED when the disarm failed (nothing removed); REMOVE_FAILED when the disarm succeeded and the removal failed"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report naming the failed control, `exit_code: 2` — Container creation tool -> Developer"
+    - id: "err-9"
+      at_step: 4
+      condition: "`container_create` or `container_start` fails"
+      system_reaction: "The tool stops; nothing is paused, armed or unpaused. If `container_create` fails, no cleanup is run (the tool removes nothing) and the state is NOT_CREATED. If `container_start` fails, the container created by this run is removed (`container_remove`; it was never released at the gate, ran no agent work and needs no disarm) and the state is REMOVED; if that removal fails, the leftover container is named on stderr to be removed manually (state CREATED_CLEANUP_FAILED). The workspace folder is kept. Reports the Docker error on stderr and returns `exit_code: 2`."
+      requirement_refs: ["SFR-AGC-022", "SFR-AGC-011"]
+      exit_state: "NOT_CREATED when `container_create` failed (no cleanup); REMOVED when `container_start` failed and the container was removed; CREATED_CLEANUP_FAILED when that removal failed"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report with Docker error, `exit_code: 2` — Container creation tool -> Developer"
+    - id: "err-10"
+      at_step: 5
+      condition: "`container_pause` fails, or the inspected `State.Paused` is not `true` (pause not executed or not verified)"
+      system_reaction: "Pause gate: the tool stops. It does not arm and does not unpause. The container is attached to `agents-net` but closed by the gate, its MAC not in `released` (arming has not begun, so there is nothing to disarm); the tool removes the container it created (`container_remove`). If the removal fails, the container is named on stderr as left in place without network (state REMOVE_FAILED). The workspace folder is kept. Reports on stderr and returns `exit_code: 2`."
+      requirement_refs: ["SFR-AGC-012", "SFR-AGC-022", "SFR-AGC-011"]
+      exit_state: "REMOVED when the container was removed; REMOVE_FAILED when the removal failed"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 2` — Container creation tool -> Developer"
+    - id: "err-11"
+      at_step: 7
+      condition: "`container_unpause` fails"
+      system_reaction: "The tool reads `State.Paused` of the container. If it is still `true`, the container is left paused, armed and unreleased (state CONTAINED); if the state is not `true` or cannot be read, the tool applies the containment of err-12. It does not remove the container (the controls are armed; removal is by `remove_agent_container`). Reports on stderr and returns `exit_code: 2`."
+      requirement_refs: ["SFR-AGC-021", "SFR-AGC-022", "SFR-AGC-011"]
+      exit_state: "CONTAINED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 2` — Container creation tool -> Developer"
+    - id: "err-13"
+      at_step: 8
+      condition: "The `resolv_conf_check_root` exec fails (non-zero exit status, or the exec cannot be run) after the unpause, or the file lacks `nameserver 1.1.1.1` or `nameserver 9.9.9.9` or contains `127.0.0.11`"
+      system_reaction: "Containment as err-12: the container is running (unpaused, armed), so the tool re-pauses it (`docker pause agent-<agentID>`) and verifies `State.Paused` `true` (state CONTAINED). If it cannot be paused and verified, the tool reports it as UNSAFE (possibly running) on stderr. It never leaves the container silently running and does not remove it. The failed check is named on stderr and the tool returns `exit_code: 2` in both cases. Recovery is `remove_agent_container` and recreate."
+      requirement_refs: ["SFR-AGC-024", "SFR-AGC-009", "SFR-AGC-011"]
+      exit_state: "CONTAINED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report naming the failed check and the containment state (CONTAINED or UNSAFE), `exit_code: 2` — Container creation tool -> Developer"
+    - id: "err-14"
+      at_step: 2
+      condition: "The per-agent lock `/run/agent-sandbox/<agentID>.lock` is held (another create or remove of the same agent is running, or the guard is checking or removing a container of that name)"
+      system_reaction: "Fails fast on stderr; nothing is touched; returns `exit_code: 1`."
+      requirement_refs: ["SSR-AGC-017", "SFR-AGC-011"]
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Container creation tool -> Developer"
+    - id: "err-15"
+      at_step: 2
+      condition: "After 60 s `/run/agent-sandbox/ready` is missing or does not hold dockerd's current MainPID (the agents-net gate was not rebuilt since the last dockerd start)"
+      system_reaction: "Stops before any docker call; nothing is touched; reports on stderr and points at `systemctl status agent-restore.service`; returns `exit_code: 3`."
+      exit_state: "NET_NOT_READY"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 3` — Container creation tool -> Developer"
+    - id: "err-16"
+      at_step: 3
+      condition: "The removal of leftovers before the creation fails: `create_agent_net disarm agent-<agentID>`, `released` or `evict` exits non-zero or cannot be run (tool step 7 of 14)"
+      system_reaction: "Stops before `docker create`; no container exists and none is created; reports the failure on stderr and returns `exit_code: 2`."
+      requirement_refs: ["SFR-AGC-029", "SFR-AGC-028", "SFR-AGC-011"]
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 2` — Container creation tool -> Developer"
+    - id: "err-12"
+      at_step: 9
+      condition: "The final verification fails: a state, runtime, user, capability, security option, resource limit, restart policy, tmpfs, mount or attached-network value differs from step 9, the folders are missing or not owned by `agent-operator`, the container's `/etc/resolv.conf` does not contain exactly the two expected `nameserver` lines or is not `root:root` mode 644 or is writable by uid 1001, the `id` check does not show uid 1001 and gid 1001, the `id -nG` check does not list the group `docker`, or the state cannot be read"
+      system_reaction: "Containment: the container may be running, so the tool re-pauses it (`docker pause agent-<agentID>`) and verifies `State.Paused` `true` (state CONTAINED). If the container cannot be paused and verified, the tool reports it as UNSAFE (possibly running) on stderr. It never leaves the container silently running. It does not remove the container. The failed property is named on stderr and the tool returns `exit_code: 2` in both cases. Recovery is `remove_agent_container` and recreate."
+      requirement_refs: ["SFR-AGC-009", "SFR-AGC-011", "SFR-NET-020"]
+      exit_state: "CONTAINED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report naming the failed property and the containment state (CONTAINED or UNSAFE), `exit_code: 2` — Container creation tool -> Developer"
+
+  postconditions:
+    - "`create_agent_container <agentID>` exited with `exit_code: 0`; the container `agent-<agentID>` exists, is running (not paused) and `docker inspect` shows the `runsc` runtime"
+    - "The container runs with `--cap-drop ALL` plus the closed 15-capability allowlist (SSR-AGC-009), `no-new-privileges`, memory 4g, CPUs 2, PID limit 512, `/tmp` (512m, `noexec,nosuid`) and `/var/lib/docker` (2g) as `tmpfs`, `--restart no`, without Docker `--init` (the image's `tini` is the init; it runs as PID 1 as root and starts the in-container `dockerd` as root); all of it read back from the inspected container"
+    - "The container's `/etc/resolv.conf` (a read-only bind mount of the host file `/etc/agent-sandbox/resolv.conf`, checked inside the container after the release, step 8, SFR-AGC-024) contains exactly `nameserver 1.1.1.1` and `nameserver 9.9.9.9`, is `root:root` mode 644 and not writable by uid 1001, read back in step 9 (SFR-NET-020)"
+    - "The per-agent Claude state `/var/lib/agent-sandbox/<agentID>/claude` is mounted read-write at `/home/agent/.claude` with `CLAUDE_CONFIG_DIR` set, so Claude login and history survive removing and recreating the container; the container has exactly three bind mounts"
+    - "`docker inspect` shows no user set for the container; `docker exec -u 1001 agent-<agentID> id` shows uid 1001 and gid 1001 and `docker exec -u 1001 agent-<agentID> id -nG` lists the in-container group `docker`; every agent workload process is started with `-u 1001` (SSR-AGC-011)"
+    - "`/home/agent-operator/Workspace-Agents/<agentID>` and its `.output` subfolder exist on `agent-host`, are owned by `agent-operator`, and the folder is mounted read-write at `/workspace` in the container (one of two read-write mounts, with `/home/agent/.claude`)"
+    - "The container is attached to the agent network only (not host networking), from its creation, and the host-side controls are verified as applied; it was closed by the agents-net gate and paused (verified) during arming and released (unpaused) only after the arming was verified, so no agent work ran before"
+    - "No agent process runs at container start (tini as PID 1 running the in-container `dockerd`); the agent is started afterwards only by `docker exec -u 1001` (`enter_agent`) in the released container (SFR-AGC-031). No network state of an earlier container of this name existed when the container was created (SFR-AGC-029)"
+    - "No credential, signing key or keyring was mounted or injected by the tool; credentials are created only inside the container by the agent at runtime (web-based login, USS-003); `api.anthropic.com` (model API) and `platform.claude.com` (token exchange and refresh after the first web-based `claude /login`, USS-003) are reachable through the egress allowlist of USS-004 (names resolved by `1.1.1.1` / `9.9.9.9` over port 53, then TCP 443 to those two hosts only)"
+    - "`daemon.json`, the Windows host and `dev-distro` are unchanged"
+    - "The whole container was created by one run of the Go executable"
+
+  notes:
+    - "Isolation: `runsc` mediates syscalls through a user-space kernel (Sentry) with its own network stack; raw sockets are disabled. This is NOT a VM boundary: `agent-host` shares one WSL2 VM with other distros (USS-001)."
+    - "Runtime: only `runsc` (registered by USS-001) is used. The runtime is chosen by the host at creation; the agent cannot choose it. Daemon changes do not affect running containers."
+    - "Host-side controls die with the container's veth and do not survive a WSL restart: never `docker start` an old agent container; remove it (USS-006) and recreate it. After a dockerd start `agent_lifecycle restore` has already removed the old agent containers and rebuilt the gate; `agent_lifecycle guard` follows the events start, unpause, die and update and network connect and disconnect of every `agent-*` container and reconciles at its start and every 60 s (`AGENT_SANDBOX_GUARD_RECONCILE`): on `die` it runs the name-keyed disarm, on the other events (and at reconcile) it runs `check-gate` with the lock free and removes the container on a clean failure (exit 2); on an error it disarms first and removes the container only after a disarm that exited 0, otherwise it leaves it in place (SFR-AGC-025 to SFR-AGC-028, SSR-AGC-017). A restarted container is removed, not re-armed; blocking a deliberate `docker restart` is out of scope (SSR-AGC-014). No external watchdog relaunches or re-arms an agent container (SSR-AGC-018). Known WSL limits: an idle stop of the distro still kills running containers (the next launch recreates them; login and history are kept, the running claude process is lost); per-port controls stay veth-bound (no nft bridge family), so a restarted container is replaced, never repaired. Recovery from an arming failure is likewise remove and recreate. The removal path always disarms the host-side controls first (exit 0) and then removes the container (SSR-AGC-016 for USC-006; err-8 here)."
+    - "Workspace layout: this use case creates only the per-agent folder (`/workspace` in the container) and its `.output` subfolder; any other content inside (for example git worktrees or dot-directories such as `.npm-env`, `.venv`, `.conda-env`) is application-dependent and not created, assigned or masked by this use case."
+    - "Risk (docker group): the agent user (uid 1001) is a member of the in-container `docker` group, which gives root-equivalent control of the in-container engine (not uid 0 for the agent process itself). The tool checks only that `docker` is among the user's groups, not that the user is its only member. Refs: SSR-AGC-011, USS-005."
+    - "Capability limit: the only enforced limit is the creation options (cap-drop ALL, the exact cap-add set, `no-new-privileges`), read back from the inspected container together with uid/gid 1001 and the `docker` group. The tool does not read or check the effective, permitted, inheritable, ambient or bounding capability sets of any process (SSR-AGC-011)."
+    - "Interrupt (SIGINT): cancellation applies to the running engine and `create_agent_net` commands, so the current step fails and reports through the normal failure path (no separate exit status). The removal of the own container, the disarm of an arming failure, the containment re-pause and the paused-state read after a failed unpause ignore the cancellation, so an interrupt leaves no container behind or uncontained (SFR-AGC-022)."
+    - "Configuration: the Workspace-Agents root can be overridden with `AGENT_SANDBOX_WORKSPACE_ROOT` (default `/home/agent-operator/Workspace-Agents`) and the location of `create_agent_net` with `AGENT_SANDBOX_ARM_BIN` (default `/usr/local/bin/create_agent_net`); blank values are ignored. They change only where the tool looks (SFR-AGC-023, SSR-AGC-008). `AGENT_LOG_LEVEL` (default INFO) controls the `[n/14]` progress lines; DEBUG also traces each command. Further overrides: `AGENT_SANDBOX_RUNTIME_DIR` (`/run/agent-sandbox`), `AGENT_SANDBOX_STATE_ROOT` (`/var/lib/agent-sandbox`), `AGENT_SANDBOX_HOST_RESOLV` (`/etc/agent-sandbox/resolv.conf`), `AGENT_SANDBOX_READY_TIMEOUT` (`60s`)."
+    - "Failure output: the failure names the failed step on stderr with `exit_state` and `exit_code`; a progress line is not a success report and nothing success-like is written to stdout after a failure (SFR-AGC-011)."
+    - "DNS resolver file (SFR-AGC-024, SFR-NET-020): Docker would generate its own `/etc/resolv.conf` at every container start (embedded DNS `127.0.0.11`, which gVisor does not serve). It is therefore a read-only bind mount of the host file `/etc/agent-sandbox/resolv.conf` (step 4); step 8 checks it inside the container and the read-back in step 9 reveals a mismatch (err-12)."
+    - "Open item (DNS resolver file and Claude state, to confirm on a real run): that `runsc` accepts the read-only bind mount over `/etc/resolv.conf` and the read-write `.claude` mount, and that owner and mode read back as expected, is not verified. Until confirmed, steps 8 and 9 and err-12, err-13 are the only guard."   # open
+    - "Open item (USS-002): the init and `dockerd` run as root by design. The capability allowlist is the 15 capabilities of step 4 (SSR-AGC-009); the PID limit (512) and the tmpfs sizes are design values (SSR-AGC-012)."

@@ -1,0 +1,17 @@
+SSR-AGC-003:
+  title: "Keep one agent, one container and one workspace, named from the identity"
+  kind: "structural"
+  usecase_step_ref: "USC-002: steps 1, 3, 4"
+
+  statement: "The system shall hold exactly one container and exactly one workspace folder for each agent identity, both named from that identity."
+
+  condition: "For every agent identity, from the creation of its container until the container is removed."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-AGENT-WORKSPACE-FS Agent workspace folder"
+
+  constraints:
+    - "Must show at most one container at IP-DOCKER-ENGINE whose name derives from a given agent identity, and no container whose name derives from two identities."
+    - "Must show the name of the container and the path of the workspace folder each determined by the agent identity alone, so two different identities never map to the same name or path."
+    - "Must show the workspace folder of an identity mounted into no container other than that identity's container."

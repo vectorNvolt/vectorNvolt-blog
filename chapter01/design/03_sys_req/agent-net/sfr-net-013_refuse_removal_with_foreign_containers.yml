@@ -1,0 +1,21 @@
+SFR-NET-013:
+  title: "Refuse removal while a non-agent container is attached"
+  kind: "functional"
+  usecase_step_ref: "USC-007: steps 3, 4, alt-1, err-3"
+
+  statement: "The system shall refuse to remove the agent network when a container that is not an agent container is attached to it, and shall change nothing."
+
+  condition: "When `remove_agent_net` has listed the containers attached to `agents-net`, stopped ones included."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine"
+    - "IP-CLI-REMOVE-AGENT-NET Network removal entrypoint"
+
+  constraints:
+    - "Must treat a container as an agent container only when its name is `agent-<id>` with an id that follows the agent identifier rule."
+    - "Must refuse with `exit_code: 1`, state `NOT_REMOVED`, naming every attached container that is not an agent container, before any agent container, rule or network is changed."
+    - "Must refuse with `exit_code: 1`, state `NOT_REMOVED`, naming the failure, when the list of attached containers cannot be read, before anything is changed."
+    - "Must report nothing to remove, with `exit_code: 0`, when the network, all `as_port_*` tables and all tagged rules are already absent."
+
+  post_conditions:
+    - "After a refusal no container, rule or network has been changed."

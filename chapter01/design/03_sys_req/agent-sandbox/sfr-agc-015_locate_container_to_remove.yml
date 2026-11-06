@@ -1,0 +1,21 @@
+SFR-AGC-015:
+  title: "Locate the container to remove and treat its absence as done"
+  kind: "functional"
+  usecase_step_ref: "USC-006: step 3, err-8"
+
+  statement: "The system shall look up the container named after the agent identity and, when none exists, report that and skip its removal."
+
+  condition: "After the engine check."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-REMOVE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must report no container agent-<id> at IP-CLI-REMOVE-AGENT-CONTAINER with exit state NOT_PRESENT and exit status 0."
+    - "Must not run the disarm of SFR-AGC-016 for an absent container; the network state left by a container that is gone is removed by the name-keyed disarm that the guard runs on die and at reconcile (SFR-AGC-025, SFR-AGC-028) and that the creation runs before docker create (SFR-AGC-029), which does not depend on the container existing."
+    - "Must still apply the workspace handling of SSR-AGC-015 when the container is absent."
+    - "Must report a lookup that itself fails (an engine error, not a missing container) at IP-CLI-REMOVE-AGENT-CONTAINER with exit state NOT_REMOVED and exit status 2, and change nothing."
+
+  post_conditions:
+    - "A re-run after a completed removal changes nothing and succeeds."

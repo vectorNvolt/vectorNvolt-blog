@@ -1,0 +1,35 @@
+SFR-HOST-008:
+  title: "Install the required dependencies inside agent-host"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 9 (exception err-4)"
+
+  # USC items: ca-certificates, curl, gnupg, Docker engine (Ubuntu archive packages docker.io and docker-buildx; docker-buildx provides BuildKit, which create_agent_image needs for docker build --progress=plain, as the legacy builder is deprecated), gVisor (runsc), Python 3, gnome-keyring, git, tar, nftables, iptables, iproute2. Runtime registration: SFR-HOST-012.
+  statement: "The system shall install the certificate bundle, a download tool and a signature tool (to fetch and verify the sandboxed runtime package repository), a container engine, a sandboxed container runtime, a Python 3 runtime, a credential keyring, a version control tool, an archive tool, the nftables packet filter tool, the iptables packet filter tool and the iproute2 network configuration tools inside the agent-host distro only."
+
+  condition: "When the distro agent-host has been restarted with its written configuration."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must run the installation inside agent-host as the user root through IP-WSL-CLI."
+    - "Must install nftables (nft, for the per-port netdev tables of create_agent_net) and iptables (for the host-side DOCKER-USER and INPUT rules of create_agent_net) inside agent-host, and iproute2 (ip and bridge, for the bridge port flags, the static FDB entry and the veth lookup of create_agent_net) inside agent-host."
+    - "Must install the container engine as the two Ubuntu archive packages docker.io and docker-buildx, so that the twelve listed dependencies are thirteen packages: ca-certificates, curl, gnupg, docker.io, docker-buildx, runsc, python3, gnome-keyring, git, tar, nftables, iptables, iproute2."
+    - "Must verify the signing key of the gVisor apt repository before the repository is trusted: the key downloaded from https://gvisor.dev/archive.key must have the primary key fingerprint pinned in the tool (trust on first use, pinned on 2026-10-30; overridable by the environment variable AGENT_HOST_GVISOR_KEY_FINGERPRINT, 40 hex characters), otherwise the run stops with exit status 2 and the repository is not trusted; the packages of the repository are then checked by apt against that key (signed-by)."
+    - "Must not install the sandboxed container runtime from a repository whose key does not match the pinned fingerprint."
+    - "Must, first, wait inside agent-host as the user root through IP-WSL-CLI for the service manager to finish starting (at most 120 seconds), by a command that always exits 0: a healthy-enough system can report a degraded state (for instance when the root user service fails over a shared cgroup), and the status command then exits non-zero. The wait never fails the step."
+    - "Must then write the resolver file of agent-host through IP-WSL-CLI as the user root, as a regular file (a symbolic link to the host resolver file is replaced) with the fixed resolvers 1.1.1.1 and 9.9.9.9, owned by root:root with mode 644, before the installation. It is written here and not in SFR-HOST-006 because a resolver file written before the restart was found gone afterwards on a live run; what removes it is unidentified (not this tool, not the cloud initialisation, not the DHCP client, not a file-creation rule). A file written after that boot survived restarts. The verification (SFR-HOST-009) is the proof. When the write fails, the run stops with exit status 2 and the installation does not start."
+    - "Must remove the empty directories /mnt/<single character> inside agent-host that are not mount points (created at the first boot before automount is disabled), before the installation, so that /mnt/c is absent; a directory that is mounted or not empty stops the run with exit status 2."
+    - "Must enable and start the container engine service (systemctl enable --now docker) at the end of the installation."
+    - "Must change nothing on the host and nothing in the distro dev-distro."
+    - "Must change no group membership and no sudo configuration of agent-operator."
+    - "Must, when an installation command fails, stop, report the failed step to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 2."
+
+  post_conditions:
+    - "Neither the host nor dev-distro has been changed."
+    - "The resolver file of agent-host is a regular file with the fixed resolvers when the write succeeded."
+    - "The twelve listed dependencies (ca-certificates, curl, gnupg, container engine, sandboxed container runtime, Python 3, credential keyring, git, tar, nftables, iptables, iproute2), thirteen packages, are installed in agent-host when the installation succeeded."
+    - "The container engine service is enabled and running when the installation succeeded."
+    - "The gVisor apt repository is trusted only after its signing key matched the pinned fingerprint."
+    - "The group membership and sudo configuration of agent-operator are unchanged."

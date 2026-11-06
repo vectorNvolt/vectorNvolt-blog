@@ -1,0 +1,106 @@
+# Public .gitignore for the chapter01/ folder of github.com/vectorNvolt/vectorNvolt-blog.
+# Copied there as chapter01/.gitignore.
+# Allowlist: ignore everything, re-include known file types,
+# then deny secret-like patterns again.
+# `git check-ignore -v PATH` explains a surprise.
+*
+
+# directories must be re-included or their contents are never visited
+!*/
+
+# tracked extensions
+!*.md
+!*.yml
+!*.yaml
+!*.toml
+!*.html
+!*.css
+!*.js
+!*.mjs
+!*.jsx
+!*.ts
+!*.tsx
+!*.py
+!*.go
+!*.sh
+!*.svg
+!*.png
+!*.jpg
+!*.webp
+!*.gif
+
+# tracked names
+!requirements*.txt
+!requirements.lock
+!requirements.in
+!.dockerignore
+!pyproject.toml
+!go.mod
+!go.sum
+!package.json
+!package-lock.json
+!tsconfig.json
+!jsconfig.json
+!langgraph.json
+!_chapter.json
+!.gitkeep
+!.gitignore
+!LICENSE
+!Dockerfile*
+
+# deny again: secrets, credentials, keys, env, db, models, archives
+*secret*
+*token*
+*password*
+*credential*
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.asc
+*.gpg
+id_rsa*
+id_ed25519*
+.env
+.env.*
+*.env
+*.sqlite
+*.sqlite3
+*.db
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.gguf
+*.ckpt
+*.bin
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# design requirement files are named after credential topics, not credentials
+!design/**/*credential*.yml
+
+# narrow re-includes of files the deny list above would otherwise catch
+!chapters/01_foundation/posts/*/islands/src/diagram/tokens.js
+!packages/agent-host/internal/services/ubuntu-cdimage-signing-key.asc
+!packages/agent-net/endpoints.json
+
+# build output (howto step 1): binaries plus copied Dockerfile.agent/requirements.lock
+/dist/
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+
+# howto: only the public runbook
+howto/*
+!howto/README.md
+
+# private-repo helper file, never public
+_public.gitignore

@@ -1,0 +1,18 @@
+SSR-HOST-004:
+  title: "Keep the required dependencies available in agent-host"
+  kind: "structural"
+  usecase_step_ref: "USC-001: steps 9, 12"
+
+  # USC items: ca-certificates, curl, gnupg, Docker engine (Ubuntu archive packages docker.io and docker-buildx; docker-buildx provides BuildKit, which create_agent_image needs for docker build --progress=plain, as the legacy builder is deprecated), gVisor (runsc), Python 3, gnome-keyring, git, tar, nftables, iptables, iproute2.
+  statement: "The system shall hold the certificate bundle, a download tool, a signature tool, a container engine, a sandboxed container runtime, a Python 3 runtime, a credential keyring, a version control tool, an archive tool, the nftables tool, the iptables tool and the iproute2 tools (ip and bridge) available in the agent-host distro."
+
+  condition: "For every start of the agent-host distro, from the verified creation until the distro is removed."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+
+  constraints:
+    - "Must show each of the twelve dependencies installed inside agent-host, which SFR-HOST-008 installs, checked as the user root by dpkg -s on each of the thirteen packages (ca-certificates, curl, gnupg, docker.io, docker-buildx, runsc, python3, gnome-keyring, git, tar, nftables, iptables, iproute2)."
+    - "Must show the container engine, Python 3 runtime, credential keyring, version control tool and archive tool available, checked as the user agent-operator by presence on its command path."
+    - "Must show the nftables tool (nft --version), the iptables tool (iptables --version) and the iproute2 tools (ip -V and bridge -V) working, checked as the user root."
+    - "Must show a container started with the sandboxed runtime running successfully inside agent-host, checked as the user root, because only root accesses the container engine socket. The check runs docker run --rm --runtime=runsc hello-world, which pulls the hello-world image from the container registry and so needs network access to that registry at verification time."

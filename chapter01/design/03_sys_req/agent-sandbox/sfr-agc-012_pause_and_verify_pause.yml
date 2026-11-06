@@ -1,0 +1,22 @@
+SFR-AGC-012:
+  title: "Pause the started container and proceed only when the pause is verified"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 5 (exception err-10)"
+
+  statement: "The system shall pause the started container before it is armed and shall continue only when the pause has been executed and verified."
+
+  condition: "When the container has been created attached to agents-net and started."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must request the pause through IP-DOCKER-ENGINE before the arming of SFR-AGC-007 begins."
+    - "Must read the paused state from the inspected container at IP-DOCKER-ENGINE and not from the pause request, which SSR-AGC-007 holds; a pause request that fails, or a paused state that is not true or cannot be read, counts as a pause not verified."
+    - "Must, when the pause is not executed and verified, stop: no arming and no unpause follow, and the container is handed to SFR-AGC-022."
+    - "Must write the failure to the error output at IP-CLI-CREATE-AGENT-CONTAINER and return exit status 2, which SFR-AGC-011 defines."
+
+  post_conditions:
+    - "The container is paused, verified from its inspected state, before it is armed; until then it is attached to agents-net but closed by the gate."
+    - "No arming or unpause has happened for a container whose pause was not verified."

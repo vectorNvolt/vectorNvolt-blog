@@ -1,0 +1,25 @@
+SSR-AGC-015:
+  title: "Delete a workspace only on explicit request and only the agent's own directory"
+  kind: "structural"
+  usecase_step_ref: "USC-006: step 7"
+
+  statement: "The system shall delete a workspace folder only when the developer passes --purge-workspace, and then only the agent's own directory directly under the Workspace-Agents root."
+
+  condition: "For every removal of an agent container."
+
+  interface_points:
+    - "IP-AGENT-WORKSPACE-FS Per-agent workspace folder"
+    - "IP-CLI-REMOVE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must keep the workspace folder by default and report its path at IP-CLI-REMOVE-AGENT-CONTAINER."
+    - "Must delete exactly the folder named by the Workspace-Agents root and the agent identity, recursively, and nothing else."
+    - "Must refuse the deletion when the folder or the Workspace-Agents root is a symbolic link, when the resolved folder is not directly under the resolved root, or when it is the root itself."
+    - "Must treat an absent folder as a note, not as an error."
+    - "Must not delete the workspace before the container is verified absent."
+    - "Must keep the agent state directory /var/lib/agent-sandbox/<id> by default, also on every removal made by agent_lifecycle restore or guard, and delete it only with --purge under the same guards (SFR-AGC-019)."
+
+  post_conditions:
+    - "No workspace was deleted without --purge-workspace."
+    - "No agent state directory was deleted without --purge."
+    - "No file outside the agent's own workspace directory was deleted, whatever links the path contained."

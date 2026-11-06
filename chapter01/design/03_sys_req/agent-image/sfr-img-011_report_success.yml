@@ -1,0 +1,19 @@
+SFR-IMG-011:
+  title: "Report successful image creation to the developer"
+  kind: "functional"
+  usecase_step_ref: "USC-003: step 7"
+
+  statement: "The system shall report successful image creation to the developer."
+
+  condition: "When the image has been confirmed to exist in the agent-host Docker engine."
+
+  interface_points:
+    - "IP-CLI-CREATE-AGENT-IMAGE Developer command-line entrypoint"
+
+  constraints:
+    - "Must write a success report to the standard output at IP-CLI-CREATE-AGENT-IMAGE."
+    - "Must return exit status 0 at IP-CLI-CREATE-AGENT-IMAGE, only when the confirmation of SFR-IMG-016 has succeeded."
+
+  post_conditions:
+    - "No failure has been reported and no non-zero exit status has been returned."
+    - "The developer has the success report and exit status 0 for the created image."

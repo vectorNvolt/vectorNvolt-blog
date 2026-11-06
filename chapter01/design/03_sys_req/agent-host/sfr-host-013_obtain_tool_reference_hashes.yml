@@ -1,0 +1,22 @@
+SFR-HOST-013:
+  title: "Obtain reference hashes of the agent tool builds"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 3 (exception err-6)"
+
+  statement: "The system shall read the Linux builds of the tools create_agent_container, remove_agent_container, create_agent_net, remove_agent_net, agent_lifecycle, enter_agent and refresh_endpoints and compute the reference SHA-256 of each before it changes anything."
+
+  condition: "When no distro named agent-host has been found registered."
+
+  interface_points:
+    - "IP-DIST-ARTIFACT Local build artifacts of the agent tools"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must read the seven builds from IP-DIST-ARTIFACT and compute their SHA-256 on the host."
+    - "Must read the model endpoints file endpoints.json from the same folder at IP-DIST-ARTIFACT and validate it: JSON {\"endpoints\":[...]} without unknown keys, at most 64 KiB, a non-empty list of unique (case-insensitive) host names or IPv4 literals."
+    - "Must change nothing while computing the reference SHA-256."
+    - "Must, when a build is missing or unreadable, or endpoints.json is missing, unreadable or invalid, stop before anything is created, report the name of each missing or unreadable build or the endpoints.json error to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 1."
+
+  post_conditions:
+    - "Nothing has been created on the host when a build is missing or unreadable, or endpoints.json is missing or invalid."
+    - "The reference SHA-256 of each tool build and the bytes of endpoints.json are available to SFR-HOST-011 when all seven builds were read and endpoints.json is valid."

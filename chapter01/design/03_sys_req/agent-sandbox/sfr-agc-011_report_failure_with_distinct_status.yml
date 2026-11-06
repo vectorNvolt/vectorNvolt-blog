@@ -1,0 +1,20 @@
+SFR-AGC-011:
+  title: "Report a failed creation with a distinguishable exit status"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 1 (err-1); step 2 (err-2, err-3, err-4, err-5, err-6, err-14, err-15); step 3 (err-7); step 4 (err-9); step 5 (err-10); step 6 (err-8); step 7 (err-11); step 8 (err-13); step 9 (err-12)"
+
+  statement: "The system shall report a failed creation to the developer with an exit status that tells a prerequisite or usage failure from a runtime failure."
+
+  condition: "When any step of the creation sequence fails."
+
+  interface_points:
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must write the failure, naming the failed step, to the error output at IP-CLI-CREATE-AGENT-CONTAINER and nothing that reads as success to the standard output; the progress lines `[n/14] <step name>` of SFR-AGC-010 are not a success report."
+    - "Must return exit status 1 at IP-CLI-CREATE-AGENT-CONTAINER for an invalid identity, a per-agent lock held by another create or remove run or by the guard (SSR-AGC-017), an unregistered runtime, an unavailable engine, an existing container, an absent shared prerequisite or a Workspace-Agents root that does not exist, is not a directory or is not owned by the operating user (SFR-AGC-023), exit status 2 for a failure of workspace or state preparation, the removal of leftovers before creation (SFR-AGC-029), container creation or start, pause, network arming, release, the /etc/resolv.conf check (SFR-AGC-024) or final verification (including a container reported as unsafe), and exit status 3 (exit state NET_NOT_READY) when the ready marker /run/agent-sandbox/ready does not hold the current dockerd MainPID within 60 seconds (nothing touched; the report names systemctl status agent-restore.service)."
+    - "Must never return exit status 0 at IP-CLI-CREATE-AGENT-CONTAINER after any failure."
+
+  post_conditions:
+    - "No failed creation has been reported as a success, and no runtime failure has been reported with the status of a prerequisite failure."
+    - "The developer holds the failed step and an exit status that selects between correcting the request or host and investigating the run."

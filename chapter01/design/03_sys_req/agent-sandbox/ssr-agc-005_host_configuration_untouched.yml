@@ -1,0 +1,17 @@
+SSR-AGC-005:
+  title: "Leave host runtime configuration, the host system and the development distro unchanged"
+  kind: "structural"
+  usecase_step_ref: "USC-002: steps 2, 10 (postcondition); USC-006: postcondition (no other container, network, image, workspace, daemon.json or Windows host resource changed)"
+
+  statement: "The system shall leave the container runtime registration, the host system outside agent-host and the development distro unchanged by creation and by removal."
+
+  condition: "For every run of the creation tool and of the removal tool, from its start until it returns."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must leave the container runtime registration unchanged, including on a run that stopped on a mismatch (SFR-RTC-002): the tool only reads it (docker info) and has no operation that writes the engine configuration."
+    - "Must show no runtime installed and no engine restarted by the run at IP-DOCKER-ENGINE."
+    - "Must not compare the state of the host or of the development distro before and after the run; the absence of change is guaranteed by construction (the tool issues only the IP-DOCKER-ENGINE operations of creation and removal and changes only the agent workspace directory under the workspace root), not measured."

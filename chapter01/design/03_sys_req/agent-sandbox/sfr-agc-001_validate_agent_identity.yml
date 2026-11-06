@@ -1,0 +1,19 @@
+SFR-AGC-001:
+  title: "Validate the agent identity of a creation request"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 1 (exception err-1)"
+
+  statement: "The system shall accept a creation request only when it carries one well-formed agent identity."
+
+  condition: "When the developer submits a creation request."
+
+  interface_points:
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must reject, at IP-CLI-CREATE-AGENT-CONTAINER, a request whose agent identity is missing or does not match the permitted form, before any check of the engine, workspace or container is made."
+    - "Must, on rejection, write a usage error to the error output at IP-CLI-CREATE-AGENT-CONTAINER, create nothing and return exit status 1, which SFR-AGC-011 defines."
+
+  post_conditions:
+    - "No workspace, container or network attachment has been created for a missing or malformed agent identity."
+    - "The creation sequence continues with the runtime check when the agent identity is well-formed."

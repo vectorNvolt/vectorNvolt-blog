@@ -1,0 +1,26 @@
+SFR-NET-027:
+  title: "Disarm by container name"
+  kind: "functional"
+  usecase_step_ref: "USC-004: alt-2; USC-007: step 5"
+
+  statement: "The system shall disarm a container by its name alone, whether the container is running, stopped or gone, remove every piece of its host-side port state and leave the table agents_gate, its chains and the rule agent-net:gate untouched."
+
+  condition: "When asked to disarm a container: by `create_agent_net disarm <container>`, as the clean slate of an arming request (SFR-NET-028), by the guard of the sandbox when a container dies or fails its check, before a container of that name is created, or per agent container inside `remove_agent_net`."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+    - "IP-DOCKER-ENGINE Docker engine"
+
+  constraints:
+    - "Must collect the identity of the name from every source that still holds it: the MACs from docker (live or stopped container), from the accept rules of the port table `as_port_<id>` and from the elements of the set released whose comment is the container name (SFR-NET-029); the IPs from docker and from the iptables rules tagged agent-net:<container>."
+    - "Must delete, in this order: every element of released whose comment is the container name or whose MAC was collected (whatever its comment), then the netdev table as_port_<id>, then every iptables rule in DOCKER-USER and INPUT tagged exactly agent-net:<container> whatever its IP, then the neighbour entries of the collected IPs on the bridge, then the static forwarding entries of the collected MACs on every port of the bridge."
+    - "Must delete a neighbour entry only when its lladdr is the container's MAC, or it is PERMANENT and its lladdr belongs to no live agents-net endpoint; an entry owned by another live endpoint stays."
+    - "Must never delete or change the table agents_gate, its chains or the rule agent-net:gate; only set elements of released are deleted."
+    - "Must never change the port flags (isolated on, locked on, learning off), and never touch the table, rules or entries of another container."
+    - "Must treat a missing container, a missing agents-net, a missing gate table and every absent table, rule, element or entry as already removed, exit with status 0 and report `nothing to disarm` when none existed, so that the disarm is idempotent and safe to repeat."
+    - "Must refuse, with exit status 1 (state NOT_DISARMED) and before anything is changed, a port table bound to the live veth of a different running container."
+    - "Must read back that no element with the comment or a collected MAC, no table, no tagged rule, no neighbour entry and no forwarding entry of the container is left, and report `disarmed`; a deletion or read-back failure returns exit status 2, state DISARM_INCOMPLETE, and the disarm can be run again."
+
+  post_conditions:
+    - "Nothing of the host-side port state of the named container is left, whether it is running, stopped or gone."
+    - "The gate of agents-net and the state of every other container are unchanged."

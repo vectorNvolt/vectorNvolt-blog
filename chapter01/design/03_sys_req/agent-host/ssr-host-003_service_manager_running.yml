@@ -1,0 +1,15 @@
+SSR-HOST-003:
+  title: "Hold the service manager running in agent-host"
+  kind: "structural"
+  usecase_step_ref: "USC-001: steps 7, 12"
+
+  statement: "The system shall hold the service manager of the agent-host distro in the running state."
+
+  condition: "For every start of the agent-host distro, from the verified creation until the distro is removed."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+
+  constraints:
+    - "Must show the service manager reporting the running state inside agent-host, checked on the running distro. The state degraded is accepted only when user@0.service is the sole failed unit; any other failed unit, or a failure to list the failed units, is not accepted."
+    - "Must keep the service manager enabled at boot in the distro configuration, which SFR-HOST-006 writes."

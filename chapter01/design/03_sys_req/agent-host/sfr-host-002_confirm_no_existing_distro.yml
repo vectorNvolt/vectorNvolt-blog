@@ -1,0 +1,22 @@
+SFR-HOST-002:
+  title: "Confirm no agent-host distro is registered before creation"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 2 (exceptions err-1, err-8)"
+
+  statement: "The system shall confirm that no distro named agent-host is registered before it creates anything."
+
+  condition: "When the creation sequence has started."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must obtain the list of registered distros through IP-WSL-CLI before any distro is created."
+    - "Must, when a distro named agent-host is already registered, leave that distro unchanged, write the collision to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 1."
+    - "Must, when the command that lists the registered distros fails, stop, report the failure (the command and its error) to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 1."
+
+  post_conditions:
+    - "No distro has been created, changed or removed when a distro named agent-host was already registered."
+    - "Nothing has been created or changed when the list of registered distros could not be obtained."
+    - "The creation sequence continues when no distro named agent-host is registered."

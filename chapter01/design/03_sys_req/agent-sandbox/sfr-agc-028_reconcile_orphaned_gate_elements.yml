@@ -1,0 +1,22 @@
+SFR-AGC-028:
+  title: "Evict untagged elements of the gate and disarm names whose container is gone"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 11 (units installed); the runtime behaviour has no use case step"
+
+  statement: "The system shall remove every element of the agents-net gate set released that no existing agent container owns."
+
+  condition: "At every reconcile of the guard (SFR-AGC-027) and before a container is created (SFR-AGC-029)."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must read the elements of released through the released subcommand of IP-AGENT-NET, which prints one line per element, the MAC and its comment (the name of the container the element was released for)."
+    - "Must evict an element without a comment with the evict subcommand of IP-AGENT-NET, given its MAC."
+    - "Must, for an element whose comment names a container that does not exist, call the name-keyed disarm of IP-AGENT-NET for that name."
+    - "Must leave an element whose container exists to the check of SFR-AGC-025."
+    - "Must treat a failing released, evict or disarm as a failure of the pass, logged to the standard error (the journal), and retry it at the next reconcile."
+
+  post_conditions:
+    - "No element of released is left without an owning container, apart from a failure that was logged and is retried."

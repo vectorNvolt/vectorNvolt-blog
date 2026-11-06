@@ -1,0 +1,22 @@
+SFR-NET-033:
+  title: "Check the confinement of the container"
+  kind: "functional"
+  usecase_step_ref: "USC-004: alt-3"
+
+  statement: "The system shall report, as one control of the gate check, whether the container has restart policy exactly no, is attached to agents-net only and is running."
+
+  condition: "When the tool is invoked as check-gate <container>."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+    - "IP-CLI-CREATE-AGENT-NET Developer command-line entrypoint"
+
+  constraints:
+    - "Must write at IP-CLI-CREATE-AGENT-NET the line `container confinement: ok|missing|mismatch` after the other controls of SFR-NET-021 and before the summary line, and check it even after a failure of another control."
+    - "Must report the control as ok only when the restart policy is exactly `no`, the container is attached to agents-net and to no other network, and the container is running."
+    - "Must not require the container to be unpaused: the container creation tool runs the check while the container is still paused."
+    - "Must treat a failed confinement control like any other control: the summary is inconsistent and the exit status is 2 (state GATE_INCONSISTENT)."
+    - "Must change nothing."
+
+  post_conditions:
+    - "The caller knows whether the container can restart by policy or reach another network."

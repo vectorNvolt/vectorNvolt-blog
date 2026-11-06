@@ -1,0 +1,228 @@
+# ==============================================================================
+# USC-003 — derived from USS-003 (design/01_user_story/uss-003_create_agent_image.md)
+# Template: tmpl_usecase_v2.yml
+# Interaction points and channels are defined in
+# design/00_system_boundary/interaction_points.yml (items marked `# proposed`
+# there are not yet confirmed by USS-003).
+# `# TBD` = undefined in USS-003 and its source docs.
+# ==============================================================================
+
+USC-003:
+  title: "Create the agent image from Windows directly in agent-host with one command"
+  summary: "The developer runs the Windows-side Go executable `create_agent_image.exe` from the folder holding `Dockerfile.agent` and `requirements.lock`; it streams an in-memory tar of exactly those two files into `docker build` as root in `agent-host` (the only Docker engine in the WSL2 VM), and verifies the image, so USS-002 finds `agent-image:latest` locally. No Windows file is written."
+
+  actors:
+    primary: "Developer"
+    supporting:
+      - "Image creation tool (Go executable `create_agent_image.exe [--tag <tag>]`, runs on Windows only and is not installed into `agent-host`; runs every external command via `os/exec`, and every action is a `wsl.exe -d agent-host -u root -e <cmd>` call; contacts no other distro; root is needed for the Docker socket, so `agent-operator` needs neither sudo nor `docker` group membership)"
+      - "`agent-host` (WSL2 distro from USS-001; the only distro that runs a Docker engine)"
+      - "Docker engine in `agent-host`"
+      - "Agent image (`agent-image:<tag>`, default `agent-image:latest`)"
+      - "Image content sources (base image registry, `claude` CLI package source, PyPI, Ubuntu repositories)"
+
+  interaction_points:
+    - ip_ref: "IP-CLI-CREATE-AGENT-IMAGE"
+      direction: "inbound"
+      type: "cli_entrypoint"
+      boundary: "PowerShell 7.4+ host process -> Go executable (`create_agent_image.exe [--tag <tag>]`)"
+      transport: "Win32 process execution / standard I/O streams"
+      role: "primary entry (command invocation from PowerShell 7.4+ with optional `--tag`), overwrite prompt (console stdin), and exit (success/failure report, exit code)"
+    - ip_ref: "IP-IMAGE-BUILD-CONTEXT"
+      direction: "outbound"
+      type: "filesystem"
+      boundary: "Go process -> `Dockerfile.agent` and `requirements.lock` in the current working directory on Windows (the folder the executable is run from, e.g. `C:\\agent-setup`)"
+      transport: "Win32 file read"
+      role: "tool checks that both files exist as regular files and reads them into the in-memory tar of the build inputs"
+    - ip_ref: "IP-IMAGE-BUILD-STREAM"
+      direction: "outbound"
+      type: "subprocess_cli"
+      boundary: "Go process (in-memory tar of the two build files) -> stdin of `wsl.exe -d agent-host -u root -e docker build -f Dockerfile.agent -t agent-image:<tag> -` -> Docker engine in `agent-host`"
+      transport: "Child process stdin (`wsl.exe`); no Windows temp file, nothing copied into `agent-host`"
+      role: "delivers the build inputs to the build in `agent-host` as a deterministic tar (entries sorted, mode 0644, uid/gid 0, mtime 0)"
+    - ip_ref: "IP-IMAGE-CONTENT-SOURCE"
+      direction: "outbound"
+      type: "http_client"
+      boundary: "Docker build in `agent-host` -> base image registry, `claude` CLI package source (npm), PyPI, Ubuntu repositories"
+      transport: "HTTPS"
+      role: "Build in `agent-host` pulls the Ubuntu 26.04 base image, `@anthropic-ai/claude-code` (npm), `langgraph` and its dependencies (PyPI, hash-pinned in `requirements.lock`), and `docker.io` (`dockerd`), Node 22, npm, Python 3.14 and `tini` (Ubuntu repositories, frozen snapshot), each at an exact pinned version and checksum-verified (SSR-IMG-004); `agent-host` needs internet access"
+    - ip_ref: "IP-DOCKER-ENGINE"
+      direction: "outbound"
+      type: "subprocess_cli"
+      boundary: "Go process -> `wsl.exe -d agent-host -u root -e docker ...` -> Docker engine in `agent-host`"
+      transport: "Child process stdio (`wsl.exe`)"
+      role: "checks the `agent-host` engine (`engine_check`), checks whether the image exists (`image_inspect`), builds the image (`image_build`, input via IP-IMAGE-BUILD-STREAM), confirms it afterwards (`image_inspect`) and checks its metadata for credentials (`image_credential_check`)"
+
+  preconditions:
+    - "USC-001 is complete: `agent-host` exists and its Docker engine is installed and running"
+    - "The tool never creates or modifies the host `daemon.json` of `agent-host`, installs `runsc` or reloads/restarts the Docker daemon; USS-001 owns the `runsc` installation and registration"
+    - "`create_agent_image.exe` cross-compiled in `dev-distro` (bash, from `packages/agent-image`) into the repo-root `dist/`: `CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ../../dist/create_agent_image.exe ./cmd/create_agent_image`, then copied from `dist/` to the Windows folder it is run from; it is not installed into `agent-host`"
+    - "PowerShell 7.4+ is available on the Windows side (no Docker Desktop, no Windows-side Docker)"
+    - "`Dockerfile.agent` and `requirements.lock` (the hash-pinned lock of the Python packages: `langgraph` and its dependencies) are regular files in the current working directory on Windows (the folder the executable is run from, e.g. `C:\\agent-setup`); they are copied there from `dist/` together with the binaries and must be re-copied after a change (checked in step 1)"
+    - "`dev-distro` is not needed at run time and must not run Docker: only `agent-host` runs a Docker engine in the WSL2 VM"
+    - "The build in `agent-host` can reach the image content sources (internet access of `agent-host`)"
+    - "`agent-image:<tag>` may or may not exist in the Docker engine of `agent-host`; an existing image is replaced only after the Developer confirms, and the prompt comes before the build"
+
+  main_flow:
+    - step: 1
+      actor: "Developer"
+      action: "Runs `create_agent_image.exe [--tag <tag>]` (default tag `latest`) in PowerShell 7.4+ on host Windows, in the folder holding the build inputs. The tool validates `<tag>` against `^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`, rejects any other flag (including `--dev-distro`), and checks that `Dockerfile.agent` and `requirements.lock` exist as regular files in the current working directory (IP-IMAGE-BUILD-CONTEXT), in that order, symbolic links followed (a link to a regular file passes; a directory or a link to a non-regular file fails). When both pass, it writes the line `build context directory: <cwd>` to stdout. No `wsl.exe` call is made in this step."
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-IMAGE"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "command invocation `create_agent_image`, args: [--tag?] — Developer -> Image creation tool"
+    - step: 2
+      actor: "Image creation tool"
+      action: "Prerequisite check before any build: runs `wsl.exe -d agent-host -u root -e docker version` (`agent-host` distro and its Docker engine reachable; operation `engine_check`)"
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`docker version` result and exit status (engine in `agent-host`, via `wsl.exe`) — Image creation tool -> Docker engine, result back"
+    - step: 3
+      actor: "Image creation tool"
+      action: "Runs `wsl.exe -d agent-host -u root -e docker image inspect agent-image:<tag>` to find out whether the image already exists in `agent-host`. The tool classifies the result: the image is absent only when `docker image inspect` fails with an explicit `no such image` result; any other failure (including an engine or `wsl.exe` error after the step 2 check, which proves reachability only at that moment) is an engine error and ends the run (see err-6)."
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`image_inspect` result and exit status (exists / absent / engine error) — Image creation tool -> Docker engine, result back"
+    - step: 4
+      actor: "Image creation tool"
+      action: "If the image does not exist, continues with step 5. If it exists, asks the Developer `overwrite agent-image:<tag>? [y/N]` before any build and continues only on `y`/`Y` (see alt-2)."
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-IMAGE"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "overwrite prompt and answer — Image creation tool <-> Developer"
+    - step: 5
+      actor: "Image creation tool"
+      action:
+        - "Builds an in-memory deterministic tar of exactly `Dockerfile.agent` and `requirements.lock` (entries sorted, mode 0644, uid/gid 0, mtime 0) and streams it on stdin of `wsl.exe -d agent-host -u root -e docker build -f Dockerfile.agent -t agent-image:<tag> -` (via `os/exec`; operation `image_build`); no Windows temp file is written"
+        - "The build in `agent-host` pulls base image Ubuntu 26.04 and installs `@anthropic-ai/claude-code` from npm (Node 22 and npm from the Ubuntu repositories), `langgraph` and its dependencies from PyPI with `pip install --require-hashes -r requirements.lock` into a venv on Python 3.14, and `docker.io` (`dockerd`) and `tini` from the Ubuntu repositories (IP-IMAGE-CONTENT-SOURCE, HTTPS)"
+        - "Creates the non-root user `agent` (UID/GID 1001) as a member of the in-container group `docker`, the `group` of the in-container daemon socket, and sets no `USER`; sets `WORKDIR /workspace`, `ENTRYPOINT [\"/usr/bin/tini\", \"--\"]` and `CMD [\"dockerd\"]` (SSR-IMG-017). The `storage-driver` of the in-container daemon is an open item (`overlay2` vs `vfs` under gVisor, USS-005); none is set."
+        - "Integrity: every installed component (base image by dated tag `ubuntu:resolute-YYYYMMDD[.N]` plus digest, OS packages, `claude` CLI npm package, Python packages) is pinned to an exact version and every downloaded artefact is checksum-verified (SSR-IMG-004)"
+      interaction_point:
+        ip_ref: "IP-IMAGE-BUILD-STREAM"
+        channel: "CHAN-WSL-BUILD-STDIN"
+        object_flow: "build inputs tar (streamed), `docker build` output and exit status — Image creation tool -> Docker engine in `agent-host`, result back; `base_image`, `claude_cli_source`, `langgraph_source`, `docker_io_source`, `tini_source` downloads — content sources -> Docker build in `agent-host`"
+    - step: 6
+      actor: "Image creation tool"
+      action:
+        - "Runs `wsl.exe -d agent-host -u root -e docker image inspect agent-image:<tag>`, which must succeed (operation `image_inspect`)."
+        - "Then checks the image metadata for credentials without starting a container (operation `image_credential_check`, SSR-IMG-005): `docker image inspect` Config.Env and Config.Labels and `docker history --no-trunc` CreatedBy lines. Name rule (Config.Env names only): a name containing TOKEN, SECRET, PASSWORD, PASSWD, API_KEY, APIKEY, CREDENTIAL or PRIVATE_KEY (case-insensitive) is a finding. Value rule (env values, label values, history lines): `ghp_`, `gho_`, `ghs_`, `github_pat_`, `sk-ant-`, `AKIA` followed by 16 characters of `[0-9A-Z]`, or `-----BEGIN` followed on the same line by `PRIVATE KEY` is a finding. Scan order: env entries (name, then value), label values, history lines newest first; the first finding stops the scan (see err-7)."
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`image_inspect` and `image_credential_check` results and exit status — Image creation tool -> Docker engine, result back"
+    - step: 7
+      actor: "Image creation tool"
+      action: "Reports success on stdout and returns `exit_code: 0`. An interrupt that arrives after this step has started does not change the result (see err-8)."
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-IMAGE"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stdout success report, `exit_code: 0` — Image creation tool -> Developer"
+
+  alternative_flows:
+    - id: "alt-1"
+      at_step: 1
+      condition: "Developer passes `--tag <tag>`"
+      behavior: "The tool builds and verifies `agent-image:<tag>` instead of `agent-image:latest`. USS-002 consumes only `agent-image:latest`, so a non-default tag is not used by `create_agent_container`."
+    - id: "alt-2"
+      at_step: 4
+      condition: "`agent-image:<tag>` already exists and the Developer answers anything but `y`/`Y` to the overwrite prompt"
+      behavior: "The tool exits with `exit_code: 0`: the existing image is kept and nothing is built. Declining is a normal outcome, not an error."
+
+  exception_flows:
+    - id: "err-1"
+      at_step: 1
+      condition: "Invalid `<tag>`, or any other flag or extra argument (including `--dev-distro`)"
+      system_reaction: "Usage error on stderr, nothing is created, no `wsl.exe` call is made, returns `exit_code: 1`."
+      exit_code: 1
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-IMAGE"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr usage error, `exit_code: 1` — Image creation tool -> Developer"
+    - id: "err-2"
+      at_step: 1
+      condition: "`Dockerfile.agent` or `requirements.lock` is missing or not a regular file in the current working directory on Windows"
+      system_reaction: "Tool reports the missing file on stderr and stops with zero `wsl.exe` calls; nothing is created; returns `exit_code: 1`."
+      exit_code: 1
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-IMAGE"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report naming the missing file, `exit_code: 1` — Image creation tool -> Developer"
+    - id: "err-3"
+      at_step: 2
+      condition: "`wsl.exe` or the `agent-host` distro unreachable, or the Docker engine in `agent-host` unreachable (`wsl.exe -d agent-host -u root -e docker version` fails)"
+      system_reaction: "Tool reports on stderr and stops before any build; returns `exit_code: 1`."
+      exit_code: 1
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-IMAGE"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Image creation tool -> Developer"
+    - id: "err-4"
+      at_step: 5
+      condition: "`wsl.exe -d agent-host -u root -e docker build` fails, including base image or a package source (`claude` CLI, `langgraph`, `docker.io`, `tini`) unreachable (e.g. no internet in `agent-host`) or an install step failing (e.g. Python missing)"
+      system_reaction: "Tool reports the Docker error on stderr and stops; no cleanup / rollback; returns `exit_code: 1`."
+      exit_code: 1
+      exit_state: "UNCHANGED"
+      note: "No image is created; a previously existing `agent-image:<tag>` is kept, because a failed build does not retag."
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-IMAGE"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report with Docker error, `exit_code: 1` — Image creation tool -> Developer"
+    - id: "err-5"
+      at_step: 6
+      condition: "`docker image inspect agent-image:<tag>` fails after the build"
+      system_reaction: "Tool reports failure on stderr including the Docker error; success is not reported; no cleanup / rollback; returns `exit_code: 2`."
+      exit_code: 2
+      exit_state: "UNVERIFIED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-IMAGE"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report with Docker error, `exit_code: 2` — Image creation tool -> Developer"
+    - id: "err-6"
+      at_step: 3
+      condition: "`docker image inspect agent-image:<tag>` fails with anything other than an explicit `no such image` result (e.g. engine or `wsl.exe` error after the step 2 check)"
+      system_reaction: "Tool reports the Docker error on stderr and stops before the overwrite prompt and any build; returns `exit_code: 1`."
+      exit_code: 1
+      exit_state: "UNCHANGED"
+      note: "Nothing is built; a previously existing `agent-image:<tag>` is kept."
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-IMAGE"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report with Docker error, `exit_code: 1` — Image creation tool -> Developer"
+    - id: "err-7"
+      at_step: 6
+      condition: "The credential check of the image metadata finds a credential-like env var name, or a credential-like env value, label value or `docker history` line (SSR-IMG-005)"
+      system_reaction: "Tool reports failure on stderr naming the offending env var, label key or history step (newest first, 1-based), never printing the matched value; success is not reported; the image is left in place; no cleanup / rollback; returns `exit_code: 2`."
+      exit_code: 2
+      exit_state: "UNVERIFIED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-IMAGE"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report naming the offending env var / history step, `exit_code: 2` — Image creation tool -> Developer"
+    - id: "err-8"
+      at_step: "1-6"
+      condition: "Developer interrupts the tool with SIGINT (Ctrl-C) at any point before step 7 begins, including the overwrite prompt of step 4 (SFR-IMG-018). The tool checks for an interrupt before each of the 7 steps and after each of steps 1-6; an interrupt seen there overrides the step's own result, also an interrupt arriving after step 6 and before step 7."
+      system_reaction: "Tool cancels the in-flight step, terminates the `wsl.exe` child, starts no later step, never reports success, writes one interrupted line on stderr (`create_agent_image: interrupted at step <n> (<step name>); exit_state: INTERRUPTED, exit_code: 130`) and returns `exit_code: 130`; no cleanup / rollback. An interrupt that arrives after step 7 has started (while the success line is written) does not change the result: the success line stays and the exit code is 0."
+      exit_code: 130
+      exit_state: "INTERRUPTED"
+      note: "Interrupted at or before the overwrite prompt: nothing is built and any existing image is unchanged. Interrupted during or after the build (steps 5, 6): the state of `agent-image:<tag>` is whatever the engine left (existing image kept, replaced, or none), unverified; the tool does not roll back or inspect it."
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-IMAGE"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr one-line interrupted message, `exit_code: 130` — Image creation tool -> Developer"
+
+  postconditions:
+    - "`create_agent_image.exe [--tag <tag>]` exited with `exit_code: 0`; either `agent-image:<tag>` (default `agent-image:latest`, the reference USS-002 expects) exists in the Docker engine of `agent-host` and is visible to `docker image inspect`, built there from the two build inputs streamed from the Windows working directory; or the Developer declined the overwrite and the previous image is unchanged"
+    - "On a build failure (err-4) no new image is created and a previously existing `agent-image:<tag>` is kept unchanged"
+    - "The image contains no credentials (its metadata was checked in step 6 and a finding ends the run with `exit_code: 2`)"
+    - "After an interrupt (err-8, `exit_code: 130`) no success was reported; the state of `agent-image:<tag>` is whatever the engine left and is unverified, and nothing was built when the interrupt came at or before the overwrite prompt"
+    - "The host `daemon.json` of `agent-host`, the Windows host and the configuration of `dev-distro` are unchanged, by construction (the tool issues only `docker version`, `docker build`, `docker image inspect` and `docker history`, each via `wsl.exe -d agent-host`; it writes no file and performs no before/after comparison); the run contacted no distro other than `agent-host`"
+    - "The tool starts no container; only the ephemeral intermediate containers that `docker build` itself creates and removes for the `RUN` steps exist, and none remains because of this run (SSR-IMG-012)"
+    - "Rollback: none by design; on failure the tool reports and stops"
+
+  notes:
+    - "Only `agent-host` runs a Docker engine; `dev-distro` holds the repository checkout, Go and uv (builds the binaries) and must not run Docker. All WSL2 distros share one VM network stack (one kernel, one network namespace): a second Docker daemon would share `docker0` and the firewall rules with `agent-host` and could disturb the host-side network controls applied by `create_agent_net arm` (USS-004); bridges of removed distros also persist in the VM until `wsl --shutdown`. Building on Windows itself is impossible: the `RUN` steps need a Linux kernel."
+    - "The build inputs are copied to the Windows folder together with the binaries (`dist/` -> e.g. `C:\\agent-setup`); after changing `Dockerfile.agent` or `requirements.lock` they must be re-copied."

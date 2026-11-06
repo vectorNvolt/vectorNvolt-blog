@@ -1,0 +1,21 @@
+SFR-RTC-002:
+  title: "Report a runtime mismatch and stop without repair"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 2 (exception err-2)"
+
+  statement: "The system shall report a missing runtime registration or an unavailable engine and stop without repairing the host."
+
+  condition: "When the isolated execution runtime is not registered or the container engine is unavailable."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must write the mismatch or the engine unavailability to the error output at IP-CLI-CREATE-AGENT-CONTAINER and return exit status 1, which SFR-AGC-011 defines."
+    - "Must leave the container runtime registration unchanged and must not install a runtime or restart the engine through IP-DOCKER-ENGINE, which SSR-AGC-005 holds."
+    - "Must create no workspace and no container after the mismatch is detected."
+
+  post_conditions:
+    - "No registration, runtime installation, engine restart, workspace or container has been changed or created."
+    - "The developer holds a report that names the mismatch and can correct the host before running again."

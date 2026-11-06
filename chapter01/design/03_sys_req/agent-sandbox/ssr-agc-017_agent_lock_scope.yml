@@ -1,0 +1,22 @@
+SSR-AGC-017:
+  title: "Serialise create, remove and guard actions per agent with one lock"
+  kind: "structural"
+  usecase_step_ref: "USC-001: step 11 (units installed); USC-002: step 2; USC-006: step 2"
+
+  statement: "The system shall serialise every create, remove and guard action on one agent container with one per-agent lock that is taken without blocking."
+
+  condition: "For every agent container, in every run of create_agent_container, remove_agent_container and every action of the guard."
+
+  interface_points:
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+    - "IP-CLI-REMOVE-AGENT-CONTAINER Developer command-line entrypoint"
+    - "IP-AGENT-LIFECYCLE Lifecycle units"
+
+  constraints:
+    - "Must use the lock file /run/agent-sandbox/<id>.lock, an exclusive non-blocking flock."
+    - "Must show create and remove holding the lock for the whole run, including start, pause and unpause, and failing fast with exit status 1 and exit state NOT_CREATED or NOT_REMOVED when it is held."
+    - "Must show the guard holding the lock through its check and its removal of a container, running the remove path with the lock already held (no second lock), and ignoring an event, or skipping a container at reconcile, whose lock is held, because a create or remove run is under way."
+    - "Must show the lock limited to one agent: it does not serialise other agents, and it is not held by enter_agent while the agent runs."
+
+  post_conditions:
+    - "No two of create, remove and guard act on the same agent container at the same time."

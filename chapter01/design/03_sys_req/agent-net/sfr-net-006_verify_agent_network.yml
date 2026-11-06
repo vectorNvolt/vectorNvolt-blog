@@ -1,0 +1,25 @@
+SFR-NET-006:
+  title: "Verify the agent network"
+  kind: "functional"
+  usecase_step_ref: "USC-004: step 3, step 5, err-8"
+
+  statement: "The system shall verify by inspecting the created network that it exists, is of bridge type, is not internal and has the address range 172.30.0.0/24, and that the container engine's configuration file is unchanged and the engine not restarted since before the creation."
+
+  condition: "When the creation request has succeeded and the gate has been installed (SFR-NET-025); the verification is the last check before success is reported."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-NET Developer command-line entrypoint"
+
+  constraints:
+    - "Must inspect the existence, the type, the internal flag (false) and the range of the created network at IP-DOCKER-ENGINE, as inspected state and not as requested state."
+    - "Must run after the installation of the agents-net gate (SFR-NET-025, USC-004 step 4) and, in the same inspection, read the gate back with the checks of SFR-NET-025 (each failed gate check is listed prefixed `gate:`); a network without a verified gate is not reported as created."
+    - "Must record the SHA-256 of the engine configuration file `daemon.json`, or its absence, and the engine start identity before the creation and compare both after the creation, as a check at IP-DOCKER-ENGINE; a changed hash or a changed start identity (engine restarted) is a failed check."
+    - "Must collect all failed checks of the run and write a failure report naming each failed check to the error output at IP-CLI-CREATE-AGENT-NET when a check fails."
+    - "Must return exit status 2 at IP-CLI-CREATE-AGENT-NET when a check fails."
+    - "Must report the exit state CREATED_UNVERIFIED at IP-CLI-CREATE-AGENT-NET when a check fails."
+    - "Must show the network left in place without cleanup or rollback at IP-DOCKER-ENGINE when a check fails."
+
+  post_conditions:
+    - "The network is left in place when the verification failed."
+    - "When all checks passed, the run reports success."

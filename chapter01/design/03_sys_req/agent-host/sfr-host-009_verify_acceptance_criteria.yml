@@ -1,0 +1,39 @@
+SFR-HOST-009:
+  title: "Verify the USS-001 acceptance criteria on the created agent-host"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 12 (exception err-5)"
+
+  statement: "The system shall verify each acceptance criterion of the created agent-host distro by inspecting its actual state."
+
+  condition: "When the agent tools have been installed."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must check through IP-WSL-CLI that agent-host is listed as version 2."
+    - "Must check inside agent-host as the user agent-operator that the container engine, Python 3 runtime, credential keyring, version control tool and archive tool are available."
+    - "Must check inside agent-host as the user root that the container engine runtime list includes runsc."
+    - "Must check inside agent-host as the user root that docker buildx version works."
+    - "Must check inside agent-host as the user root that nft --version, iptables --version, ip -V and bridge -V succeed."
+    - "Must check inside agent-host as the user agent-operator that /etc/wsl.conf and /etc/docker/daemon.json are owned root:root and not writable by agent-operator, as required by SFR-HOST-006 and SFR-HOST-012."
+    - "Must check inside agent-host as the user agent-operator that /etc/wsl.conf has the content written by SFR-HOST-006, that /etc/resolv.conf is a regular file and not a symbolic link, that /etc/resolv.conf has the content written by SFR-HOST-008, that /etc/hosts has the content written by SFR-HOST-006, that both are owned root:root and are not writable by agent-operator, and that the hostname is agent-host."
+    - "Must check inside agent-host as the user agent-operator that /mnt/wslg, /tmp/.X11-unix, /mnt/wsl and /usr/lib/wsl are not mountpoints, that /dev/dxg is absent or masked by the null device (the node is a shared kernel device under WSL) and that /usr/lib/wsl/lib and /usr/lib/wsl/drivers are empty."
+    - "Must check inside agent-host as the user agent-operator that /usr/local/libexec/agent-host-isolate has the content written by SFR-HOST-006 and is owned root:root with mode 755, that /etc/systemd/system/agent-host-isolate.service and /etc/systemd/system/docker.service.d/agent-host-isolate.conf have the content written by SFR-HOST-006 and are owned root:root with mode 644, and that agent-host-isolate.service is enabled and active (exited)."
+    - "Must check inside agent-host as the user root that a container started with the sandboxed runtime runs successfully."
+    - "Must check inside agent-host as the user agent-operator that no host drive is mounted (/mnt/c absent, no drvfs or host-drive 9p mount in /proc/mounts) and that no host program can be run (the WSLInterop binfmt entries are not registered and powershell.exe is not found on the command path)."
+    - "Must check inside agent-host as the user agent-operator that the service manager reports the running state. The state degraded is accepted only when the sole failed unit, as listed by systemctl list-units --state=failed, is user@0.service, which WSL fails to start (Failed to spawn executor: Device or resource busy); a warning is then printed. Any other failed unit, or a failure to list the units, fails the check."
+    - "Must check inside agent-host as the user agent-operator that the default user is agent-operator."
+    - "Must check inside agent-host as the user agent-operator that its UID is 1001."
+    - "Must check inside agent-host as the user agent-operator that it has no root-equivalent group membership or sudoers entry: not a member of the groups sudo, admin, wheel, adm, disk, lxd, libvirt and docker, no sudoers entry, the latter checked as `sudo -n true` failing (a missing sudo binary also passes)."
+    - "Must check inside agent-host as the user agent-operator that its command search path holds no host path entries."
+    - "Must check inside agent-host as the user agent-operator that /usr/local/bin/create_agent_container, /usr/local/bin/remove_agent_container, /usr/local/bin/create_agent_net, /usr/local/bin/remove_agent_net, /usr/local/bin/agent_lifecycle, /usr/local/bin/enter_agent and /usr/local/bin/refresh_endpoints are owned root:root with mode 755 and match their reference SHA-256."
+    - "Must check inside agent-host as the user agent-operator that /etc/systemd/system/agent-restore.service and /etc/systemd/system/agent-guard.service have the content written by SFR-HOST-011 and are owned root:root with mode 644, that docker.service, agent-restore.service and agent-guard.service are enabled, that agent-guard.service is active and that agent-restore.service is active (exited)."
+    - "Must check inside agent-host as the user agent-operator that agent-guard.service has been running without a restart since its start (systemctl show NRestarts equals 0 and the main process is agent_lifecycle guard), that its unit has Restart always and ExecStart agent_lifecycle guard, and that the file /run/agent-sandbox/ready written by agent_lifecycle restore exists, so that the guard and the gate rebuild are both in place."
+    - "Must check inside agent-host as the user agent-operator that /usr/local/bin is owned by root and not writable by agent-operator."
+    - "Must, when at least one check fails, write each failed check to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 2."
+
+  post_conditions:
+    - "Success has not been reported while any check failed."
+    - "Every failed check is listed on the error output when at least one check failed."

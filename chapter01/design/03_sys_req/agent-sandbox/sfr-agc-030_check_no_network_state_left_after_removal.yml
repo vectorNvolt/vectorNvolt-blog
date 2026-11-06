@@ -1,0 +1,20 @@
+SFR-AGC-030:
+  title: "Check that no network state of the container is left after its removal"
+  kind: "functional"
+  usecase_step_ref: "USC-006: step 6, err-6"
+
+  statement: "The system shall check after the removal that the agent network control holds no state of the removed container."
+
+  condition: "After a removal request for an existing container."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+    - "IP-CLI-REMOVE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must base the check on the state read after the removal: no element of the set released with the container name as comment, and no port table, tagged rule, neighbour entry or FDB entry of the container, as the verification of the disarm defines (SFR-NET-012)."
+    - "Must report a leftover at IP-CLI-REMOVE-AGENT-CONTAINER with exit state REMOVE_FAILED and exit status 2, naming each leftover; a state that cannot be read is reported with exit state NOT_REMOVED and exit status 2 as in SFR-AGC-018."
+    - "Open: the removal tool reads the engine again but does not yet read the network state; this requirement is not yet implemented."
+
+  post_conditions:
+    - "A removal is reported as done only when the container is gone and no network state of it is left."

@@ -1,0 +1,26 @@
+SFR-HOST-012:
+  title: "Register the sandboxed runtime in the container engine of agent-host"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 10 (exception err-4)"
+
+  statement: "The system shall register the sandboxed container runtime in the container engine configuration of the agent-host distro and restart the container engine service so that the runtime takes effect."
+
+  condition: "When the required dependencies have been installed in agent-host."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must execute the registration (runsc install) and the container engine service restart inside agent-host as the user root through IP-WSL-CLI."
+    - "Must write the runtime entry into the container engine configuration file /etc/docker/daemon.json inside agent-host."
+    - "Must register runsc with the path /usr/local/bin/runsc and the eight runtimeArgs defined in SSR-HOST-006 (--platform=systrap, --network=sandbox, --net-raw=false, --allow-flag-override=false, --overlay2=root:memory, --file-access=exclusive, --file-access-mounts=shared, --directfs=false)."
+    - "Must leave /etc/docker/daemon.json owned root:root, readable by agent-operator and not writable by agent-operator."
+    - "Must change nothing on the host and nothing in the distro dev-distro."
+    - "Must, when the registration or the restart fails, stop, report the failed step to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 2."
+
+  post_conditions:
+    - "Neither the host nor dev-distro has been changed."
+    - "The runtime entry is registered in /etc/docker/daemon.json and the container engine service has been restarted when the registration succeeded."
+    - "The runtime entry holds the path /usr/local/bin/runsc and the eight runtimeArgs of SSR-HOST-006 when the registration succeeded."
+    - "/etc/docker/daemon.json is owned root:root, readable but not writable by agent-operator."

@@ -1,0 +1,25 @@
+SFR-AGC-007:
+  title: "Arm the network port and verify host-side controls before release"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 6"
+
+  statement: "The system shall arm the paused container, already attached to the agent network and held closed by the agents-net gate, so that the host-side controls are applied and verified, before the container is released."
+
+  condition: "When the pause of the started container has been verified (SFR-AGC-012)."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must not attach the container to any network: it was created attached to agents-net (SFR-AGC-006), and arming runs neither docker network connect nor disconnect."
+    - "Must arm only a container that runs under the isolated execution runtime (runsc) and has the restart policy exactly no (an empty policy is refused), is attached to agents-net only and is paused; the Agent network control refuses anything else with exit status 1 before it changes anything (SFR-NET-008), and the tool counts that refusal as an arming failure."
+    - "Must rely on the Agent network control to arm from a clean slate: it first removes, with the name-keyed disarm, every leftover of the same container name (SFR-NET-008), so that no state of an earlier container of that name is inherited."
+    - "Must apply, at IP-AGENT-NET, agent-to-agent isolation, a fixed network identity and the egress policy, all on the host side where the agent cannot see or clear them; the Agent network control (create_agent_net arm) applies them and verifies them itself, and releases the port by adding the agent MAC to the set released of the gate (SFR-NET-010)."
+    - "Must, after the Agent network control reports success, read each applied control back through IP-AGENT-NET (create_agent_net check-gate, read-only), by its effective state and not by trusting the request that applied it, which SSR-AGC-007 holds."
+    - "Must require exit status 0 of the read-back (all controls present and verified, including the gate, the mark on its accept rules, the MAC in released and the container confinement control; SFR-NET-021), and treat exit status 1 or 2, a control that the Agent network control cannot apply or verify, a gate that is missing (a network that predates the gate), or a read-back that cannot be run as an arming failure and hand over to SFR-AGC-008, including the per-control report lines of the read-back in the failure report."
+    - "Must not release the container (SFR-AGC-021) until every control is applied and read back, so no traffic reaches or leaves the container before then, which SSR-AGC-002 holds."
+
+  post_conditions:
+    - "The container has not been reachable from or to any other agent, or to any destination outside the egress policy, at any time before its release."
+    - "The container is attached to the agent network with all host-side controls applied and read back, its MAC released at the gate, and is still paused."

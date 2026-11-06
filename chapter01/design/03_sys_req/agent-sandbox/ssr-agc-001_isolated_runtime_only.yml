@@ -1,0 +1,17 @@
+SSR-AGC-001:
+  title: "Run every agent container under the isolated execution runtime only"
+  kind: "structural"
+  usecase_step_ref: "USC-002: steps 4, 9"
+
+  statement: "The system shall hold every agent container under the isolated execution runtime (`runsc`) and under no other runtime."
+
+  condition: "For every agent container, from its creation until it is removed."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must show the isolated execution runtime as the runtime of the container, read from the inspected container at IP-DOCKER-ENGINE and not from the creation request."
+    - "Must show the arming refused for a container whose inspected runtime is not runsc (SFR-NET-008), so that a container under another runtime is never released, not only never created."
+    - "Must show the creation failing, with no container left running, when the isolated execution runtime cannot be used, instead of falling back to another runtime, which SFR-AGC-006 establishes."
+    - "Must show that the choice of runtime is made by the host-side creation and is not selectable from inside the container."

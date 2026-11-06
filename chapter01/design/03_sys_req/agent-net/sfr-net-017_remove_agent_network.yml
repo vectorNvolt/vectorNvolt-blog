@@ -1,0 +1,20 @@
+SFR-NET-017:
+  title: "Remove the agent network"
+  kind: "functional"
+  usecase_step_ref: "USC-007: step 9, alt-2, err-5"
+
+  statement: "The system shall remove the Docker network `agents-net` when it exists."
+
+  condition: "After the agent containers, the leftover port tables, the gate (SFR-NET-026) and the leftover tagged rules have been removed."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine"
+
+  constraints:
+    - "Must run `docker network rm agents-net` only after no container is attached to it."
+    - "Must run as the last removal step (USC-007 step 9), before the read-back of SFR-NET-018."
+    - "Must treat an absent network as already removed."
+    - "Must report a failure of the removal with `exit_code: 2`, state `REMOVE_INCOMPLETE`, without rollback."
+
+  post_conditions:
+    - "The network `agents-net` does not exist."

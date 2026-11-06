@@ -1,0 +1,16 @@
+SSR-IMG-004:
+  title: "Pin every installed component to an exact version and verify downloaded artefacts by checksum"
+  kind: "structural"
+  usecase_step_ref: "USC-003: step 5"
+
+  statement: "The system shall fix the content of the agent image by pinning every installed component (base image, OS packages, `claude` CLI npm package, Python packages) to an exact version and by verifying every downloaded artefact by checksum."
+
+  condition: "For every build of the agent image, from the first retrieval of content to the completed build."
+
+  interface_points:
+    - "IP-IMAGE-CONTENT-SOURCE Image content source"
+
+  constraints:
+    - "Must show every component retrieved at IP-IMAGE-CONTENT-SOURCE pinned to an exact version in the build inputs and installed at that version; a component without an exact version pin fails the requirement. Pin mechanisms: base image by dated tag and digest (`ubuntu:resolute-YYYYMMDD[.N]@sha256:...`, for example `ubuntu:resolute-20261024.1@sha256:...`, the digest being that of the multi-arch OCI index); OS packages (`ca-certificates`, `curl`, `docker.io`, Node, npm, `openssl`, Python and `python3.14-venv`, `tini`) as `package=version` from an Ubuntu archive snapshot frozen at a fixed timestamp (snapshot.ubuntu.com); bootstrap exception: `ca-certificates` and `openssl` are first installed, at exact versions, from the frozen `resolute` suite of archive.ubuntu.com over plain HTTP and verified by apt's archive signature (InRelease, ubuntu-archive-keyring), because snapshot.ubuntu.com is HTTPS-only and the base image has no CA bundle yet; the snapshot then installs the final pinned versions; `claude` CLI npm package at an exact version; Python packages in `requirements.lock`."
+    - "Must show every artefact downloaded at IP-IMAGE-CONTENT-SOURCE verified by checksum before it is installed, and the build failing when that check fails: base image by digest, OS packages by the signed apt snapshot metadata, `claude` CLI npm tarballs against checksums stored in the repo (`Dockerfile.agent`), Python packages by `pip install --require-hashes`."
+    - "Rationale: pins are refreshed deliberately (new dated base tag and digest, new snapshot timestamp, new checksums and lock) to pick up security updates; a refresh is a reviewed change to the build inputs, never an implicit one."

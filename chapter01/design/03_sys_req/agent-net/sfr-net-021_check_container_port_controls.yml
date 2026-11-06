@@ -1,0 +1,32 @@
+SFR-NET-021:
+  title: "Check the port controls of a container read-only"
+  kind: "functional"
+  usecase_step_ref: "USC-004: alt-3"
+
+  statement: "The system shall report the state of the host-side port controls of a named container without changing anything."
+
+  condition: "When the tool is invoked as check-gate <container>."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+    - "IP-CLI-CREATE-AGENT-NET Developer command-line entrypoint"
+
+  constraints:
+    - "Must find the host-side veth of the container from the host, as in SFR-NET-008."
+    - "Must read back at IP-AGENT-NET the table as_port_<id> with its chain policies and accept rules, the port flags, the static FDB entry, the neighbour entry and the iptables rules tagged agent-net:<container> (including the DNS egress rule and the endpoint egress rule of SFR-NET-009), and report their state, including the port mark that the ingress accept rules set (SFR-NET-034)."
+    - "Must read back the agents-net gate (SFR-NET-025): the table agents_gate with both chains at policy drop, the ingress accept rule that requires and clears the port mark (SFR-NET-034), the set released and the tagged DOCKER-USER rule agent-net:gate, and whether the agent MAC is in released, and require bridge-nf-call-iptables to be 1 without setting it."
+    - "Must read back the confinement of the container (SFR-NET-033): restart policy, attached networks and running state."
+    - "Must change nothing: no table, rule, flag, neighbour entry or FDB entry is added, modified or deleted."
+    - "Must write at IP-CLI-CREATE-AGENT-NET one line per control, `<control>: ok|missing|mismatch`, for the controls, in this order, table as_port_<id> present, both chain policies, accept rules (all accept rules of a released port, or none = closed), agents-net gate, gate release, port flags (isolated, learning off, locked on), static FDB entry, neighbour entry (permanent, lladdr = agent MAC), DNS egress rule (UDP and TCP 53 to 1.1.1.1 and 9.9.9.9 only) and endpoint egress rule (TCP 443 to api.anthropic.com and platform.claude.com only) as two distinct controls, the other iptables rules tagged agent-net:<container>, and container confinement (SFR-NET-033), checking every control even after a failure."
+    - "Must report the control agents-net gate as ok when the table agents_gate, its set and both chains bound to the bridge device at policy drop, the rule agent-net:gate and bridge-nf-call-iptables = 1 are all as installed by SFR-NET-025, missing when the table is absent, mismatch otherwise."
+    - "Must report the control gate release as ok when the table as_port_<id> has no accept rule and the agent MAC is not in released, or has accept rules and the agent MAC is in released; mismatch for the other combinations (or accept rules with an unknown MAC); missing when the gate table is not available to look the MAC up."
+    - "That makes 12 control lines in total (the 9 listed above, the two gate lines and the container confinement line), each checked even after a failure, followed by the summary line."
+    - "Must report the control accept rules as mismatch when a released port's ingress accept rules do not set the port mark, and the control agents-net gate as mismatch when the gate's ingress rule does not require and clear the mark (SFR-NET-034)."
+    - "Must write at IP-CLI-CREATE-AGENT-NET a final summary line stating the port state: closed (agent MAC not in released, and table with no accept rules), released (agent MAC in released, and verified accept rules present) or inconsistent (any other combination, including a missing gate table)."
+    - "Must return exit status 0 when every control is ok (state closed or released)."
+    - "Must return exit status 1 (state NOT_CHECKED) when nothing was checked: invalid invocation, missing or unknown container, or missing privilege or prerequisite."
+    - "Must return exit status 2 (state GATE_INCONSISTENT) when the check ran and at least one control is missing or mismatched, or a read-back failed."
+
+  post_conditions:
+    - "The state of the port controls has been reported."
+    - "The controls are unchanged."

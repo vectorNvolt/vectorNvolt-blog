@@ -1,0 +1,23 @@
+SFR-NET-004:
+  title: "Refuse to create the agent network on an address range clash"
+  kind: "functional"
+  usecase_step_ref: "USC-004: step 3, err-5"
+
+  statement: "The system shall refuse to create the agent network when its address range 172.30.0.0/24 overlaps an address range already in use in the agent host, including existing container-engine networks, host addresses and host routes, and never repair the host configuration."
+
+  condition: "When no network of that name exists."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-NET Developer command-line entrypoint"
+
+  constraints:
+    - "Must compare the range with the ranges of the existing networks at IP-DOCKER-ENGINE and with the addresses and routes of the agent host, including the WSL NAT interface."
+    - "Must write a failure report naming the overlapping network, address or route to the error output at IP-CLI-CREATE-AGENT-NET when an overlap exists."
+    - "Must return exit status 1 at IP-CLI-CREATE-AGENT-NET when an overlap exists."
+    - "Must show nothing created and no host configuration changed when an overlap exists."
+    - "Must report the exit state NOT_CREATED at IP-CLI-CREATE-AGENT-NET when an overlap exists."
+
+  post_conditions:
+    - "Nothing has been created when the range clashed."
+    - "When no overlap existed, the run continues with the creation."

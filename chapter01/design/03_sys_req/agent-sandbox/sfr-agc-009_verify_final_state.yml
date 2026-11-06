@@ -1,0 +1,29 @@
+SFR-AGC-009:
+  title: "Verify the final state of the agent container and contain it on failure"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 9 (exception err-12)"
+
+  statement: "The system shall verify that the agent container exists, is running and unpaused, has every security and resource property it was created with, and shall contain the container when the verification fails."
+
+  condition: "When the container has been released (unpaused, SFR-AGC-021) and its /etc/resolv.conf has been checked (SFR-AGC-024)."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-AGENT-WORKSPACE-FS Agent workspace folder"
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must inspect the existing container at IP-DOCKER-ENGINE and read its actual state, actual runtime, user, capability drop and add lists, security options, memory limit, processor limit, process-count limit, restart policy, attached networks, temporary filesystems and mounts, not the values requested at creation, which SSR-AGC-007 holds."
+    - "Must count as failed a container that is missing, not running, paused, bound to any runtime other than the isolated execution runtime (runsc), or whose inspected property differs from the value SSR-AGC-001, SSR-AGC-009, SSR-AGC-010, SSR-AGC-012, SSR-AGC-013 and SSR-AGC-014 require; and any mount other than the workspace folder and the Claude state directory that is read-write, or a workspace or Claude state mount that is not read-write; and a missing CLAUDE_CONFIG_DIR=/home/agent/.claude in the environment."
+    - "Must check at IP-AGENT-WORKSPACE-FS that the workspace folder and its .output subfolder exist and are owned by the operating user, and that an exec with the explicit agent user shows the uid and gid of SSR-AGC-011."
+    - "Must count as failed a container with other than exactly three mounts (the workspace bind at /workspace read-write, /var/lib/agent-sandbox/<id>/claude at /home/agent/.claude read-write, and /etc/agent-sandbox/resolv.conf at /etc/resolv.conf read-only, each with the right source), and a container whose /etc/resolv.conf does not meet SFR-NET-020 (checked by an exec with the explicit agent user)."
+    - "Must count as failed a container whose restart policy is not exactly no (an empty policy included) and one that is attached to any network other than agents-net or not to agents-net."
+    - "Must count a state that cannot be read as failed."
+    - "Must, on a failed verification, contain the container: re-pause it through IP-DOCKER-ENGINE and verify the paused state; when it cannot be paused and verified, report it as unsafe (possibly running). The container must never be left silently running after a failed verification, and is not removed by this requirement."
+    - "Must treat the contained-failure handling of a failed /etc/resolv.conf check (SFR-AGC-024, err-13) the same way: re-pause, verify the paused state, report unsafe when that fails."
+    - "Must report a failed verification as a runtime failure with exit status 2, naming the failed property and the containment outcome (contained or unsafe), which SFR-AGC-011 defines."
+
+  post_conditions:
+    - "No success has been reported for a container that is missing, stopped, paused, not under the isolated execution runtime or deviating from the required properties."
+    - "After a failed verification the container is paused, or the developer holds a report that names it as unsafe."
+    - "The inspected state is available to the success report of SFR-AGC-010."

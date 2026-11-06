@@ -1,0 +1,230 @@
+# ==============================================================================
+# USC-006 — removal counterpart of USC-002 (user story USS-006)
+# Template: tmpl_usecase_v2.yml
+# Interaction points and channels are defined in
+# design/00_system_boundary/interaction_points.yml.
+# `# proposed` = defined here, not in a user story or interaction_points.yml.
+# In particular IP-CLI-REMOVE-AGENT-CONTAINER is not yet listed in
+# interaction_points.yml and must be added there.
+# Step mapping: the tool runs 10 numbered steps (progress lines `[n/10]`); this
+# use case keeps its 8 steps: the per-agent lock is part of step 1, the agent
+# state handling is part of step 7.
+# ==============================================================================
+
+USC-006:
+  title: "Disarm and remove an agent container with one command"
+  summary: "The developer runs a single Go executable as root inside `agent-host` (from host Windows via `wsl.exe`) with an `agentID` and optionally `--purge-workspace` and `--purge`; it closes the container's network port with `create_agent_net disarm`, removes the container `agent-<agentID>` and, only on request, deletes the agent's own workspace folder and its agent state (Claude login and history)."   # proposed
+
+  actors:
+    primary: "Developer"
+    supporting:
+      - "Container removal tool (Go executable `remove_agent_container`, run as root)"
+      - "Docker engine in `agent-host`"
+      - "Agent container"
+      - "Agent network control (`create_agent_net disarm <container>`, USS-004)"
+
+  interaction_points:
+    - ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"   # proposed
+      direction: "inbound"
+      type: "cli_entrypoint"
+      boundary: "Developer on host Windows -> `wsl.exe -d agent-host -u root -e` -> Go executable (`remove_agent_container`) in `agent-host`"
+      transport: "POSIX process execution / standard I/O streams (relayed by `wsl.exe`)"
+      role: "primary entry (command invocation with `agentID` and optional `--purge-workspace` and `--purge`, as root) and exit (report, exit code)"
+    - ip_ref: "IP-DOCKER-ENGINE"
+      direction: "outbound"
+      type: "subprocess_cli"
+      boundary: "Go process -> Docker engine (`docker` CLI) in `agent-host`"
+      transport: "Child process stdio or local Docker socket (root access to the socket)"
+      role: "tool checks the engine, looks up the container, removes it and confirms it is gone"
+    - ip_ref: "IP-AGENT-NET"
+      direction: "outbound"
+      type: "host_network_control"
+      boundary: "Go process -> Agent network control `create_agent_net disarm <container>` (USS-004) -> host network namespace in `agent-host`"
+      transport: "Subprocess call `create_agent_net disarm agent-<agentID>`; exit 0 = rules removed or nothing to disarm, 1 = prerequisite, 2 = runtime"
+      role: "tool closes the container's port on the agent network (name-keyed, idempotent disarm) before an existing container is removed"
+    - ip_ref: "IP-AGENT-WORKSPACE-FS"
+      direction: "outbound"
+      type: "filesystem"
+      boundary: "Go process -> `agent-host` filesystem (`/home/agent-operator/Workspace-Agents/<agentID>`)"
+      transport: "POSIX filesystem calls"
+      role: "tool deletes the per-agent workspace folder, only with `--purge-workspace`, and the agent state directory `/var/lib/agent-sandbox/<agentID>`, only with `--purge`; it holds the per-agent lock `/run/agent-sandbox/<agentID>.lock`"
+
+  preconditions:
+    - "USC-001 is complete: `agent-host` exists with Docker installed, and `remove_agent_container` is installed at `/usr/local/bin/remove_agent_container` (`root:root`, mode 755)"   # proposed
+    - "The Agent network control `create_agent_net` is installed at `/usr/local/bin/create_agent_net` and offers `disarm <container>` (USS-004)"
+    - "`runsc` need not be registered: removing a container does not need the isolated runtime"
+    - "The location of `create_agent_net` can be overridden with the environment variable `AGENT_SANDBOX_ARM_BIN`, and the Workspace-Agents root with `AGENT_SANDBOX_WORKSPACE_ROOT`; the defaults are `/usr/local/bin/create_agent_net` and `/home/agent-operator/Workspace-Agents`"
+
+  main_flow:
+    - step: 1
+      actor: "Developer"
+      action: "Runs `wsl.exe -d agent-host -u root -e remove_agent_container <agentID> [--purge-workspace] [--purge]` from host Windows. Running as root is a deployment convention: the tool does not check its own effective user id. It accepts the `agentID` (same rule as USC-002) followed by `--purge-workspace` and `--purge`, each at most once; any other argument, repetition or count is a usage error. It then takes the per-agent lock `/run/agent-sandbox/<agentID>.lock` (non-blocking `flock`, held for the whole run; a held lock fails the run, err-10). It prints a progress line `[n/10] <step name>` to stdout before each step."
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "command invocation `remove_agent_container`, args: [agentID, optional --purge-workspace, optional --purge] — Developer -> Container removal tool"
+    - step: 2
+      actor: "Container removal tool"
+      action: "Checks that the Docker engine answers."
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "engine check; result and exit status — Container removal tool -> Docker engine, result back"
+    - step: 3
+      actor: "Container removal tool"
+      action: "Looks up the container `agent-<agentID>` (`docker container inspect`). If it does not exist, the tool notes `no container agent-<agentID>` and continues at step 7 without disarm (SFR-AGC-015): the network state left by a container that is gone is removed by the name-keyed disarm that the guard runs on `die` and at reconcile and that `create_agent_container` runs before `docker create` (SFR-AGC-025, SFR-AGC-028, SFR-AGC-029)."
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "existence check; result — Container removal tool -> Docker engine, result back"
+    - step: 4
+      actor: "Container removal tool"
+      action: "Calls the Agent network control `create_agent_net disarm agent-<agentID>`, which removes the host-side state of the container's port: the elements of the gate set `released` tagged with the container name (and its MACs), the port table, the tagged rules, the neighbour entries and the FDB entries; it never touches the gate itself. The disarm is name-keyed, works for a running, stopped or removed container and exits 0 when nothing is left to do (SFR-NET-012). The container is not removed before this call succeeded (SFR-AGC-016). If the guard already disarmed the port on the container's `die` event, the disarm is repeated here (SFR-AGC-017)."
+      interaction_point:
+        ip_ref: "IP-AGENT-NET"
+        channel: "CHAN-AGENT-NET"
+        object_flow: "`disarm` request for `agent-<agentID>`; disarm result — Container removal tool -> Agent network control -> host network namespace in agent-host, result back"
+    - step: 5
+      actor: "Container removal tool"
+      action: "Removes the container: if its inspected state is paused, it is unpaused first (after the disarm; `runsc` cannot kill a paused sandbox), then `docker rm -f agent-<agentID>`. A failed unpause is a failed removal."
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "`container_remove`; result — Container removal tool -> Docker engine, result back"
+    - step: 6
+      actor: "Container removal tool"
+      action: "Checks again that `agent-<agentID>` no longer exists, from the engine state read after the removal (SFR-AGC-018). It also has to check that the Agent network control holds no state of the container (no element of `released` with the container name as comment, no port table, tagged rule, neighbour entry or FDB entry; SFR-AGC-030)."   # open: the tool does not yet read the network state (SFR-AGC-030 not implemented); only the engine state is read
+      interaction_point:
+        ip_ref: "IP-DOCKER-ENGINE"
+        channel: "CHAN-DOCKER-EXEC"
+        object_flow: "existence check; result — Container removal tool -> Docker engine, result back"
+    - step: 7
+      actor: "Container removal tool"
+      action: "Keeps the workspace folder `/home/agent-operator/Workspace-Agents/<agentID>` and reports its path. With `--purge-workspace` it deletes exactly that folder recursively, and only if it is a real directory directly under `Workspace-Agents` (neither the folder nor `Workspace-Agents` is a symlink, the resolved path stays inside the root, and it is not the root itself). An absent folder is noted, not an error. It then handles the agent state `/var/lib/agent-sandbox/<agentID>`: it keeps it and reports its path, or, with `--purge`, deletes exactly that directory under the same guards (real directory, no symlink, directly under the real state root; err-11)."
+      interaction_point:
+        ip_ref: "IP-AGENT-WORKSPACE-FS"
+        channel: "CHAN-FS-WORKSPACE"
+        object_flow: "path checks and, only with `--purge-workspace`, recursive deletion of `Workspace-Agents/<agentID>`; path checks and, only with `--purge`, recursive deletion of `/var/lib/agent-sandbox/<agentID>` — Container removal tool -> agent-host filesystem"
+    - step: 8
+      actor: "Container removal tool"
+      action: "Reports on stdout a summary line (`agent container agent-<agentID> disarmed and removed`, or `no container agent-<agentID>`), the line `exit_state: <STATE>` (`REMOVED` or `NOT_PRESENT`) a workspace line (kept, purged, or not present with `--purge-workspace`) and an agent state line (kept, purged, or not present with `--purge`), and returns `exit_code: 0`."
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stdout report, `exit_code: 0` — Container removal tool -> Developer"
+
+  # Exit codes mirror USC-002: 1 = usage or prerequisite, 2 = runtime. All are proposed.
+  # Every failure is safe to re-run: disarm is idempotent and a missing container is not an error.
+  exception_flows:
+    - id: "err-1"
+      at_step: 1
+      condition: "No argument, an invalid `agentID`, an argument other than `--purge-workspace` and `--purge`, or a repeated option"
+      system_reaction: "Usage error on stderr (`usage: remove_agent_container <agentID> [--purge-workspace] [--purge]` followed by the `agentID` rule), nothing is changed, returns `exit_code: 1`."   # proposed
+      exit_state: "NOT_REMOVED"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr usage error, `exit_code: 1` — Container removal tool -> Developer"
+    - id: "err-2"
+      at_step: 2
+      condition: "Docker engine unavailable"
+      system_reaction: "Report and stop on stderr; nothing is changed; returns `exit_code: 1`."   # proposed
+      exit_state: "NOT_REMOVED"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Container removal tool -> Developer"
+    - id: "err-8"
+      at_step: 3
+      condition: "`docker container inspect` itself fails (an engine error, not \"no such container\")"
+      system_reaction: "Report the engine error on stderr; nothing is changed; returns `exit_code: 2`."
+      exit_state: "NOT_REMOVED"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 2` — Container removal tool -> Developer"
+    - id: "err-3"
+      at_step: 4
+      condition: "The Agent network control `create_agent_net` cannot be run (binary missing)"
+      system_reaction: "Report and stop on stderr; nothing is removed; returns `exit_code: 1`."   # proposed
+      exit_state: "NOT_REMOVED"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Container removal tool -> Developer"
+    - id: "err-4"
+      at_step: 4
+      condition: "`create_agent_net disarm` exits non-zero"
+      system_reaction: "Report its stderr and stop: the container is not removed and stays behind the gate; a re-run retries; returns `exit_code: 2`."   # proposed
+      exit_state: "DISARM_FAILED"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report naming the failed control, `exit_code: 2` — Container removal tool -> Developer"
+    - id: "err-9"
+      at_step: 4
+      condition: "The container vanished between step 3 and step 4"
+      system_reaction: "No failure of its own: the disarm is name-keyed and exits 0 when nothing is left to do, so the removal continues; the container is found gone at step 5 (not an error) and at step 6, and the run ends with exit 0. Only a non-zero disarm exit is a failure, handled as err-4 (SFR-AGC-016). A re-run finds no container at step 3 and reports `NOT_PRESENT` (exit 0)."
+      exit_state: "REMOVED"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report naming the failed control, `exit_code: 2` — Container removal tool -> Developer"
+    - id: "err-5"
+      at_step: 5
+      condition: "`docker rm -f` fails"
+      system_reaction: "Report the engine error on stderr (this includes a failed unpause of a paused container); the workspace is not touched; returns `exit_code: 2`."   # proposed
+      exit_state: "REMOVE_FAILED"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 2` — Container removal tool -> Developer"
+    - id: "err-6"
+      at_step: 6
+      condition: "The container still exists after removal, or the engine state cannot be read (message `container removal could not be verified`); required by SFR-AGC-030 and not yet implemented (open): network state of the container is left (an element of `released` with its name, a port table, a tagged rule, a neighbour entry or an FDB entry), naming each leftover"
+      system_reaction: "Report on stderr; the workspace is not touched; returns `exit_code: 2`."   # proposed
+      exit_state: "REMOVE_FAILED when the container still exists; NOT_REMOVED when its state cannot be read (there is no UNVERIFIED state)"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 2` — Container removal tool -> Developer"
+    - id: "err-7"
+      at_step: 7
+      condition: "`--purge-workspace` and the folder is a symlink, the root is a symlink, the path resolves outside the root, or deletion fails"
+      system_reaction: "Report on stderr and delete nothing outside the agent's own folder; the container is already gone; returns `exit_code: 2`."   # proposed
+      exit_state: "WORKSPACE_PURGE_FAILED"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 2` — Container removal tool -> Developer"
+    - id: "err-10"
+      at_step: 1
+      condition: "The per-agent lock `/run/agent-sandbox/<agentID>.lock` is held (a create or remove of the same agent is running)"
+      system_reaction: "Report and stop on stderr; nothing is changed; returns `exit_code: 1`."
+      exit_state: "NOT_REMOVED"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Container removal tool -> Developer"
+    - id: "err-11"
+      at_step: 7
+      condition: "`--purge` and the state directory is a symlink, the state root is a symlink, the path resolves outside the state root, or deletion fails"
+      system_reaction: "Report on stderr and delete nothing outside the agent's own state directory; the container is already gone; returns `exit_code: 2`."
+      exit_state: "STATE_PURGE_FAILED"
+      interaction_point:
+        ip_ref: "IP-CLI-REMOVE-AGENT-CONTAINER"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 2` — Container removal tool -> Developer"
+
+  postconditions:
+    - "`remove_agent_container <agentID>` exited with `exit_code: 0`; the container `agent-<agentID>` does not exist; stdout carries a summary line and `exit_state: REMOVED` (or `exit_state: NOT_PRESENT` when none existed)"
+    - "The container's network port was disarmed before the container was removed (not for an absent container, SFR-AGC-015)"
+    - "No network state of the removed container is left (SFR-AGC-030; open: not yet checked by the tool)"
+    - "`/home/agent-operator/Workspace-Agents/<agentID>` still exists, unless `--purge-workspace` was given; `/var/lib/agent-sandbox/<agentID>` still exists, unless `--purge` was given"
+    - "No other container, network, image, workspace folder, `daemon.json` or Windows host resource was changed"
+
+  notes:
+    - "Without a container, `--purge-workspace` and `--purge` still apply: they finish a removal whose purge failed earlier."
+    - "`agent_lifecycle restore` and `guard` (USS-001 units) use this removal path and never purge: `restore` with a tolerant disarm (a failed disarm is logged and the removal goes on, because the gate is rebuilt right after), `guard` with the strict disarm of err-4: it removes a container only after a disarm that exited 0 (also on its error path, SFR-AGC-026) and otherwise leaves it in place, and it runs the removal with the per-agent lock it already holds (SFR-AGC-017, SSR-AGC-017)."
+    - "The disarm always precedes the unpause and removal, so a paused container is never released before its port is closed."
+    - "Host-side rules are not kept across `wsl --shutdown`; `disarm` then finds nothing to disarm and exits 0. After a dockerd start `agent_lifecycle restore` has usually removed the container already (`NOT_PRESENT`)."

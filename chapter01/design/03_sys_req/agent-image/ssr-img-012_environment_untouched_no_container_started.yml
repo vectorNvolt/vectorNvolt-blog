@@ -1,0 +1,20 @@
+SSR-IMG-012:
+  title: "Leave runtime configuration and environments unchanged and start no container of its own"
+  kind: "structural"
+  usecase_step_ref: "USC-003: preconditions, postconditions"
+
+  statement: "The system shall leave the agent-host Docker runtime configuration and the configuration of the development distro unchanged, leave the Windows host completely unchanged, and start no container of its own; the only containers a run may involve are the ephemeral intermediate containers that `docker build` itself creates and removes for the `RUN` steps inside the agent-host Docker engine."
+
+  condition: "For every run of the image creation tool, from its start until it returns."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-IMAGE Developer command-line entrypoint"
+
+  constraints:
+    - "Must leave the agent-host Docker runtime configuration unchanged at IP-DOCKER-ENGINE, including in a run that failed, by construction: the tool changes no configuration and issues only `docker version`, `docker build`, `docker image inspect` and `docker history`, each through `wsl.exe` in the agent-host distro. The tool performs no before and after comparison of the configuration."
+    - "Must leave the configuration of the development distro unchanged by construction: the distro is not contacted, because every `wsl.exe` call names the agent-host distro."
+    - "Must leave the Windows host unchanged by construction: the tool reads the two build inputs from the current directory, assembles the build context in memory and writes no file."
+    - "Must show that the tool itself never issues `docker run`, `docker create`, `docker start` or `docker exec` at IP-DOCKER-ENGINE: the Docker adapter of the tool offers only the operations version, build, inspect (image, Config.Env, Config.Labels) and history, and no run, create, start or exec operation exists in it."
+    - "Must accept the ephemeral intermediate containers that `docker build` creates and removes for the `RUN` steps of `Dockerfile.agent` inside the agent-host Docker engine; they are build-internal, are removed by the build, and are not started by the tool."
+    - "Must show no container at IP-DOCKER-ENGINE after the run because of the run, other than the build-internal, automatically removed intermediate containers of `docker build`."

@@ -1,0 +1,22 @@
+SFR-AGC-031:
+  title: "Start the agent process only by docker exec as the agent user after the container is released"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 10 (postcondition)"
+
+  statement: "The system shall start no agent process at container start and shall start it only through a docker exec as uid 1001 into a container that has been released."
+
+  condition: "For every agent container; the exec is made by enter_agent."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must start the container with tini as process 1 running dockerd (the image's own start command) and no agent process (SFR-AGC-006); the image is unchanged."
+    - "Must exec the agent only with docker exec -u 1001 (uid only, so the supplementary group docker is kept) and only after the sequence pause, arm, check-gate, unpause has passed."
+    - "Must, for a running container, call check-gate of IP-AGENT-NET before the exec and not exec when it fails; the failure report and the exit code of check-gate are returned, and a running container is never removed by enter_agent."
+    - "Must, for an absent container, run the creation sequence and, for a container in any other state, the removal sequence (without purge) and then the creation sequence, before the exec."
+    - "Must make the execs of the creation tool (cat, stat and id probes) fixed commands of the tool, not agent work."
+
+  post_conditions:
+    - "No agent process ran before the release of the container."

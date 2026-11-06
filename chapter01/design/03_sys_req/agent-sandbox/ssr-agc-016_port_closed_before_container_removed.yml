@@ -1,0 +1,22 @@
+SSR-AGC-016:
+  title: "Close the agent's port before its container is removed"
+  kind: "structural"
+  usecase_step_ref: "USC-006: step 4, step 5"
+
+  statement: "The system shall disarm the network port of an agent container before it removes the container, and shall remove nothing when the disarm fails."
+
+  condition: "For every removal of an existing agent container, by the removal tool, the guard or the restore."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must call the disarm of IP-AGENT-NET for the container and obtain exit status 0 before the removal request at IP-DOCKER-ENGINE."
+    - "Must leave the container in place, behind the gate, when the disarm exits non-zero or the Agent network control cannot be run, so that a re-run retries. The guard follows the same rule: it removes a container only after a disarm that exited 0 (SFR-AGC-026); the restore alone runs a tolerant mode, because it rebuilds the gate right after (SFR-AGC-016)."
+    - "Must also run the disarm, without a removal, on the die event of an agent container (the container stays), so that the port is closed whenever a container stops (SFR-AGC-025)."
+    - "Must not ask the developer whether to remove the container anyway."
+
+  post_conditions:
+    - "No container was removed while its host-side rules were still applied."
+    - "A failed disarm left the container and the workspace as they were."

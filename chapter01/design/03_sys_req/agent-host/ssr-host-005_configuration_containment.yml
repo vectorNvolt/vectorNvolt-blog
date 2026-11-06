@@ -1,0 +1,17 @@
+SSR-HOST-005:
+  title: "Contain the container configuration inside agent-host"
+  kind: "structural"
+  usecase_step_ref: "USC-001: steps 6 to 11, postconditions"
+
+  statement: "The system shall hold the container engine and sandboxed runtime configuration only inside the agent-host distro, and shall address no distro other than agent-host."
+
+  condition: "For every run of the creation command, from its start until its end."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+
+  constraints:
+    - "Must show the container engine and sandboxed runtime configuration present inside agent-host."
+    - "Must address every IP-WSL-CLI operation that runs a command or changes a distro only to the distro agent-host: the IP-WSL-CLI adapter has no distro parameter, so no command can target dev-distro or another distro."
+    - "Must change the host only by the install directory (%LOCALAPPDATA%\\agent-host by default, else the user cache or temp directory; overridable with AGENT_HOST_INSTALL_DIR) and a temporary rootfs file (agent-host-rootfs-*.tar.gz in the temp directory) that is removed when the run ends, with no host configuration changed."
+    - "Must not compare the state of the host or of dev-distro before and after the run; the absence of change is guaranteed by construction (the adapter pinned to agent-host), not measured."

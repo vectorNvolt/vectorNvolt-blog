@@ -1,0 +1,19 @@
+SSR-NET-002:
+  title: "Hold the network controls outside the container's reach"
+  kind: "structural"
+  usecase_step_ref: "USC-004: alt-1"
+
+  statement: "The system shall hold every network control on the host side of the attachment of a container, out of reach of code running inside the container."
+
+  condition: "For every container armed, from its attachment to the agent network until it stops."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must apply every control at the host side at IP-AGENT-NET, where code in the container cannot address, observe or clear it."
+    - "Must identify the host-side attachment of the container at IP-AGENT-NET from host state only. Host state is state read by the host from the host kernel, including the kernel view of the container's network namespace read by the host as root (for example with nsenter, where the host's own tools run and no code of the container runs); under runsc with the sandbox network that namespace is a host-kernel namespace held by the sandbox process, and code in the container reaches only the sandbox's own network stack, which cannot change kernel interfaces there. Must never use a value reported by code inside the container: output of docker exec, a file in the container or the guest-side network stack."
+    - "Must cross-check the host-side attachment found at IP-AGENT-NET against the agent MAC, the container IP and the agents-net bridge as master of the host interface, and must fail the arm on any mismatch (no matching interface, more than one, a different IPv4 address, or a master other than the agents-net bridge)."
+    - "Must not depend on the agent container lacking network-administration rights: any network-administration capability the container may hold (none is granted by default) must give no ability at IP-AGENT-NET to add, change or clear the forwarding-database entry, the learning setting, the filters or the neighbor state on the host-side bridge and virtual ethernet pair."
+    - "Must keep every control valid at IP-AGENT-NET even if code in the container reconfigures its own interface, including its MAC address, IP address and ARP behavior, freely."
+    - "Must run arming with network-administration rights on the host side at IP-AGENT-NET and never delegate it to anything running inside an agent container."

@@ -1,0 +1,26 @@
+SFR-AGC-022:
+  title: "Clean up only the own partial creation when start or pause fails"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 4 (exception err-9), step 5 (exception err-10), step 6 (exception err-8), step 7 (exception err-11)"
+
+  statement: "The system shall, when container creation, start, pause or unpause fails, stop the sequence and leave behind no container that is reachable or running unnoticed, removing only what this run created."
+
+  condition: "When the creation, start, pause or unpause of the container fails."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must, when the creation fails (err-9), stop with exit state NOT_CREATED and run no cleanup: no container exists to remove, the tool removes no container after a failed create, and starts, arms, pauses and unpauses nothing. The name-keyed disarm that ran before the creation request (SFR-AGC-029) is not repeated."
+    - "Must, when the start fails (err-9), stop, remove through IP-DOCKER-ENGINE the container this run created (exit state REMOVED), and arm, pause and unpause nothing; when that removal fails the exit state is CREATED_CLEANUP_FAILED and the error output names the container to remove manually. The container was never armed, so its MAC is not in the set released and this run needs no disarm; the container only ran the idle init (tini with dockerd, SFR-AGC-031), no agent process, and the guard ignores its start while this run holds the agent lock (SSR-AGC-017)."
+    - "Must, when the pause is not verified (err-10; docker pause fails, the paused state cannot be read, or State.Paused is false), stop without arming or unpausing and remove the container this run created (exit state REMOVED, or REMOVE_FAILED when the removal fails, with the container named on the error output); arming has not begun, so the container has no host-side controls and its MAC is not in released (the gate keeps it closed), and this run needs no disarm."
+    - "Must, when the unpause fails (err-11), leave the armed container in place and contain it as SFR-AGC-021 and SFR-AGC-009 define."
+    - "Must, after an arming failure (err-8), follow SFR-AGC-008: disarm first, then remove."
+    - "Must handle an interrupt (SIGINT) of either command (create_agent_container, remove_agent_container) by cancelling the running engine and Agent network control commands, so that the current step fails and reports through the normal failure path (no separate exit status for the interrupt). Must run the removal of the own container, the disarm of an arming failure (SFR-AGC-008), the containment of SFR-AGC-009 and the paused-state read after a failed unpause (SFR-AGC-021) with the cancellation ignored, so that an interrupt does not leave the container behind or uncontained."
+    - "Must keep the workspace folder, the agent state directory /var/lib/agent-sandbox/<id> and every resource this run did not create, and name on the error output any container that could not be removed."
+    - "Must write the failure to the error output at IP-CLI-CREATE-AGENT-CONTAINER and return exit status 2, which SFR-AGC-011 defines."
+
+  post_conditions:
+    - "No container created by this run remains after a failure in start or pause, unless its removal failed and the developer holds a report that names it. After a failed create the tool has removed no container."
+    - "No resource this run did not create has been removed or changed, and the workspace folder remains."

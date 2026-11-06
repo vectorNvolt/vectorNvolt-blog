@@ -1,0 +1,17 @@
+SSR-HOST-007:
+  title: "Keep the installed agent tools root-owned in agent-host"
+  kind: "structural"
+  usecase_step_ref: "USC-001: steps 3, 11, 12"
+
+  statement: "The system shall hold the tools create_agent_container, remove_agent_container, create_agent_net, remove_agent_net, agent_lifecycle, enter_agent and refresh_endpoints in /usr/local/bin of the agent-host distro owned by root and not replaceable by agent-operator."
+
+  condition: "For every start of the agent-host distro, from the verified creation until the distro is removed."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+
+  constraints:
+    - "Must show each of the five tools owned root:root with mode 755, checked as the user agent-operator, which SFR-HOST-011 establishes and SFR-HOST-009 verifies."
+    - "Must show the unit files /etc/systemd/system/agent-restore.service and /etc/systemd/system/agent-guard.service owned root:root with mode 644, checked as the user agent-operator."
+    - "Must show each of the five tools with the same SHA-256 as its build on the host, which SFR-HOST-013 obtains, checked as the user agent-operator."
+    - "Must show /usr/local/bin owned by root and not writable by agent-operator, checked as the user agent-operator."

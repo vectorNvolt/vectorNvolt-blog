@@ -1,0 +1,31 @@
+SFR-HOST-011:
+  title: "Install the agent tools and lifecycle units into agent-host"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 11 (exception err-7)"
+
+  statement: "The system shall install the tools create_agent_container, remove_agent_container, create_agent_net, remove_agent_net, agent_lifecycle, enter_agent and refresh_endpoints into /usr/local/bin of the agent-host distro, check each against its reference SHA-256, and install, enable and start the systemd units agent-restore.service and agent-guard.service that run agent_lifecycle."
+
+  condition: "When the sandboxed runtime has been registered."
+
+  interface_points:
+    - "IP-DIST-ARTIFACT Local build artifacts of the agent tools"
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must install each tool inside agent-host as the user root through IP-WSL-CLI with the command /bin/sh -c 't=\"$1.tmp\" && cat > \"$t\" && chown root:root \"$t\" && chmod \"$2\" \"$t\" && mv -f \"$t\" \"$1\"' sh /usr/local/bin/<name> 755, the file bytes on standard input (not install /dev/stdin, which fails under wsl.exe -e with the uutils coreutils of the Ubuntu 26.04 rootfs)."
+    - "Must compare the SHA-256 of each installed tool, computed inside agent-host, with its reference SHA-256 from SFR-HOST-013."
+    - "Must keep /usr/local/bin owned by root and not writable by agent-operator."
+    - "Must let root invoke the tools by their absolute path /usr/local/bin/<name>."
+    - "Must, after the tools, write /etc/systemd/system/agent-restore.service (Type oneshot, RemainAfterExit yes, Requires, After and PartOf docker.service, ExecStart agent_lifecycle restore, ExecStopPost removing /run/agent-sandbox/ready, WantedBy docker.service and multi-user.target) and /etc/systemd/system/agent-guard.service (Type simple, ExecStart agent_lifecycle guard, Restart always) as the user root through IP-WSL-CLI with the same standard-input delivery, owned root:root with mode 644."
+    - "Must install agent-guard.service so that agent_lifecycle guard, as the long-running process of the unit, follows the container engine events start, unpause, die and update and the network events connect and disconnect of the agent containers, holds the per-agent lock while it checks and removes, runs the name-keyed disarm on die, runs check-gate on the other events and removes the container on a clean check-gate failure (exit 2), on an error disarms first and removes the container only when the disarm exited 0 (otherwise leaves it in place, fail-closed), and reconciles at its start and every 60 s (AGENT_SANDBOX_GUARD_RECONCILE) by checking every agent container whose lock is free, evicting untagged released elements and disarming names whose container is gone, as specified for agent_lifecycle guard in SFR-AGC-025, SFR-AGC-026, SFR-AGC-027, SFR-AGC-028, SSR-AGC-017 and SSR-AGC-018. The two units are both ordered after docker.service and are not ordered against each other; the guard exits non-zero when the event stream ends so that Restart always starts it again."
+    - "Must run systemctl daemon-reload, enable docker.service, agent-restore.service and agent-guard.service, and start them, as the user root."
+    - "Must, after the units are started, seed the model endpoints file: run /usr/local/bin/refresh_endpoints as the user root through IP-WSL-CLI with the bytes of endpoints.json (SFR-HOST-013) on standard input, never as a path, so that it validates the list, resolves the names on the host and installs /etc/agent-net/endpoints.json; then check with stat -c '%U:%G %a' that the file is root:root 644."
+    - "Must, when an installation fails, a SHA-256 differs, a unit cannot be written, enabled or started, or refresh_endpoints exits non-zero or leaves a file that is not root:root 644, stop, report the tool or unit name and the install error, both hashes or the stderr of refresh_endpoints to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 2."
+
+  post_conditions:
+    - "Each tool is installed owned root:root with mode 755 and has the SHA-256 of its build when the installation succeeded."
+    - "Both unit files are installed owned root:root with mode 644, the units are enabled and started, so that after every dockerd start the agent containers are removed and the agents-net gate is rebuilt, and an agent container started outside the tools, or one restarted, unpaused or reconnected with its gate not passing check-gate, is removed after a successful disarm; a failed disarm leaves it in place."
+    - "/etc/agent-net/endpoints.json is installed owned root:root with mode 644 from the endpoints.json of the tools folder."
+    - "/usr/local/bin is owned by root and not writable by agent-operator."
+    - "Success has not been reported while a tool is missing or its SHA-256 differs."

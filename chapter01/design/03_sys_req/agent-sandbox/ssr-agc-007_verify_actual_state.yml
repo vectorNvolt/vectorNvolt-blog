@@ -1,0 +1,18 @@
+SSR-AGC-007:
+  title: "Verify the inspected state, not the requested state"
+  kind: "structural"
+  usecase_step_ref: "USC-002: steps 2, 5, 6, 9; USC-006: step 6"
+
+  statement: "The system shall base every verification on the state inspected from the system and never on the state it requested."
+
+  condition: "For every verification of the creation run, from the runtime check until the result is reported."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must show the runtime registration read from the engine at IP-DOCKER-ENGINE, the container state, runtime, capabilities, security options, resource limits, restart policy, temporary filesystems and mounts read from the inspected container, and not echoed from the request, which SFR-AGC-009 requires."
+    - "Must show the paused state read from the inspected container after the pause and before the arming, which SFR-AGC-012 requires."
+    - "Must show each host-side control applied and verified by the Agent network control and then read back in its effective form by the creation tool at IP-AGENT-NET, which SFR-AGC-007 requires."
+    - "Must show a verification that cannot read the state counted as failed, not as passed."

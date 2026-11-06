@@ -1,0 +1,24 @@
+SFR-NET-001:
+  title: "Reject an invalid invocation"
+  kind: "functional"
+  usecase_step_ref: "USC-004: step 2, err-1"
+
+  statement: "The system shall reject any invocation of the network creation tool that is none of the six accepted forms, namely the plain creation request, the arming request, the disarming request, the gate check request, the released listing request and the eviction request, the arming, disarming and gate check requests naming one container and the eviction request naming one MAC address, and stop with nothing created."
+
+  condition: "When the network creation tool is invoked."
+
+  interface_points:
+    - "IP-CLI-CREATE-AGENT-NET Developer command-line entrypoint"
+
+  constraints:
+    - "Must accept exactly six invocation forms at IP-CLI-CREATE-AGENT-NET, namely no arguments (creation), `arm <container>`, `disarm <container>`, `check-gate <container>`, `released` (no further argument) and `evict <mac>`."
+    - "Must write a usage error to the error output at IP-CLI-CREATE-AGENT-NET for any other invocation."
+    - "Must return exit status 1 at IP-CLI-CREATE-AGENT-NET for any other invocation."
+    - "Must accept as <container> only a name matching `^[a-zA-Z0-9][a-zA-Z0-9_.-]*$` whose port-table id (the name without a leading `agent-`) is not empty, and must reject the container name `gate` in `arm`, `disarm` and `check-gate` as an invalid invocation (usage error, exit status 1), because its rule tag `agent-net:gate` would collide with the tag of the network gate rule."
+    - "Must accept as <mac> of `evict` only a 6-byte hardware address that parses as a MAC; any other value is an invalid invocation (usage error, exit status 1)."
+    - "Must show nothing created when an invocation is rejected."
+    - "Must report the not-done state of the mode named by the first argument when it is `arm` (GATED_UNARMED), `disarm` (NOT_DISARMED), `check-gate` or `released` (NOT_CHECKED) or `evict` (NOT_EVICTED), and NOT_CREATED otherwise. GATED_UNARMED with exit status 1 also covers the precondition refusals of `arm` (container missing, not running or not paused, not attached to `agents-net` only, runtime not `runsc`, restart policy not exactly `no`; `agents-net` or its gate missing), SFR-NET-008."
+
+  post_conditions:
+    - "Nothing has been created when the invocation was rejected."
+    - "When the invocation was accepted, the run continues with the checks."

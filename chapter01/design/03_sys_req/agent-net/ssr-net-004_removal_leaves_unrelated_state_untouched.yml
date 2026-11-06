@@ -1,0 +1,18 @@
+SSR-NET-004:
+  title: "Leave everything outside the agent network setup untouched during removal"
+  kind: "structural"
+  usecase_step_ref: "USC-007: preconditions, steps 5 to 9, postconditions"
+
+  statement: "The system shall leave the container engine's configuration, every nftables table other than `as_port_*` and `agents_gate` (the tables the removal deletes, SFR-NET-015 and SFR-NET-026), every iptables rule without an `agent-net:` comment, every container other than the agent containers, the workspace folders of the agents, the Windows host and the development distribution unchanged by the network removal tool."
+
+  condition: "For every run of the network removal tool, from invocation to exit."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must show the engine configuration, `daemon.json`, unchanged after the run compared with before the run, and the engine neither reloaded nor restarted, at IP-DOCKER-ENGINE."
+    - "Must show every nftables table whose name does not start `as_port_` and is not `agents_gate`, and every iptables rule without an `agent-net:` comment, unchanged at IP-AGENT-NET. The disarm (SFR-NET-027) is a separate tool form and deletes only set elements of `released` in `agents_gate`, never the table."
+    - "Must show every container that is not an attached agent container, and the workspace folder of every agent, unchanged."
+    - "Must show the Windows host and the development distribution unchanged by the run."

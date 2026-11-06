@@ -1,0 +1,17 @@
+SSR-IMG-015:
+  title: "Run a Docker engine only in the agent-host"
+  kind: "structural"
+  usecase_step_ref: "USC-003: preconditions, postconditions"
+
+  statement: "The system shall use only the agent-host Docker engine to build and hold the agent image and shall contact no other WSL distro, because all WSL2 distros share one VM network stack and a second Docker engine would share the bridge and the firewall rules with the agent-host."
+
+  condition: "For every run of the image creation tool, from its start until it returns."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-IMAGE-BUILD-STREAM Image build inputs stream"
+
+  constraints:
+    - "Must issue every Docker engine command of the run (`docker version`, `docker build`, `docker image inspect`, `docker history`) as `wsl.exe` against the agent-host distro, at IP-DOCKER-ENGINE and at IP-IMAGE-BUILD-STREAM; the distro name is fixed in the tool and not selectable by the developer."
+    - "Must make no call to any WSL distro other than the agent-host, and start or use no Docker engine in any other distro or on the Windows host; this holds by construction, as the tool has no other distro name and no other Docker invocation path."
+    - "Must leave the host-side network configuration of the agent-host unchanged by construction: the tool issues no network, firewall, bridge or daemon configuration command, so the controls applied by the network arming are not disturbed. The tool performs no check of the network configuration."

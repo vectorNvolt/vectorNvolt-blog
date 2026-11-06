@@ -1,0 +1,20 @@
+SFR-AGC-005:
+  title: "Stop with nothing started when the workspace cannot be prepared"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 3 (exception err-7)"
+
+  statement: "The system shall stop with nothing started when the workspace folder cannot be prepared."
+
+  condition: "When the workspace folder or its .output subfolder cannot be created or cannot be handed to the operating user."
+
+  interface_points:
+    - "IP-AGENT-WORKSPACE-FS Agent workspace folder"
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must write the filesystem failure to the error output at IP-CLI-CREATE-AGENT-CONTAINER and return exit status 2, which SFR-AGC-011 defines."
+    - "Must start no container and attach no network after the failure at IP-AGENT-WORKSPACE-FS."
+
+  post_conditions:
+    - "No container has been created or started and no network attachment exists for the agent identity."
+    - "The developer holds a report that names the filesystem failure, and a folder that already existed is untouched."

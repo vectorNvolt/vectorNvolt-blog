@@ -1,0 +1,21 @@
+SFR-HOST-004:
+  title: "Register the agent-host distro as a version 2 distro"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 5 (exception err-3)"
+
+  statement: "The system shall register a distro named agent-host from the verified base filesystem archive as a version 2 distro in an install directory on the host."
+
+  condition: "When the base filesystem archive has been verified."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must confirm, in step 2 (after the check that no distro named agent-host exists, before the base filesystem archive is downloaded and before the registration), that the WSL version reported by IP-WSL-CLI (wsl.exe --version) is at least 2.4.10; otherwise, or when the version cannot be read, stop, write the failure (WSL 2.4.10 or newer is required; run `wsl --update`) to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 1, with no distro created."
+    - "Must submit the registration at IP-WSL-CLI with the name agent-host, an install directory on the host, the verified archive and version 2."
+    - "Must, when the registration fails, stop, write the captured error of IP-WSL-CLI to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 2."
+
+  post_conditions:
+    - "No second distro named agent-host has been registered."
+    - "A distro named agent-host is registered as version 2 when the registration succeeded."

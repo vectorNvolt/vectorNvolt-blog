@@ -1,0 +1,19 @@
+SFR-HOST-010:
+  title: "Report successful creation to the developer"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 13"
+
+  statement: "The system shall report successful creation to the developer."
+
+  condition: "When all acceptance checks have passed."
+
+  interface_points:
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must write a success report to the standard output at IP-CLI-CREATE-AGENT-HOST."
+    - "Must return exit status 0 at IP-CLI-CREATE-AGENT-HOST, only when every check of SFR-HOST-009 has passed."
+
+  post_conditions:
+    - "No failure has been reported and no non-zero exit status has been returned."
+    - "The developer has the success report and exit status 0 for the created agent-host."

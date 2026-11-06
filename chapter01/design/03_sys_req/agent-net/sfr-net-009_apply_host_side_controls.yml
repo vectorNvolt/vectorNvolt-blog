@@ -1,0 +1,29 @@
+SFR-NET-009:
+  title: "Apply the host-side network controls"
+  kind: "functional"
+  usecase_step_ref: "USC-004: alt-1"
+
+  statement: "The system shall apply the host-side network controls to the attached container."
+
+  condition: "When the container, attached to the agent network at its creation, has its port table loaded with both chains at policy drop."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must isolate the attachment of the container from the attachments of other agent containers at IP-AGENT-NET (port isolation isolated on), so that no traffic is forwarded between agents."
+    - "Must give the attachment of the container a fixed hardware identity: the agent MAC pinned as a static (permanent) forwarding-database entry on the bridge port of the container, MAC learning off (learning off) and the kernel MAC lock set (locked on) on that port, so that no learned or dynamic entry can move or replace it at IP-AGENT-NET."
+    - "Must add at arm time, before the release, a permanent neighbour entry on the host (agent IP -> agent MAC on the agents-net bridge, nud permanent), so that the host never sends ARP requests to the container."
+    - "Must, before any control is applied, handle a PERMANENT neighbour entry for the container IP on the bridge with another lladdr than the agent MAC that is still there after the clean slate (SFR-NET-028): delete it when no live agents-net endpoint owns that lladdr, otherwise fail the arm (control neighbour entry) and leave it. The clean slate has already removed the neighbour entries of the container's own IPs that are not owned by another live endpoint, so this branch only decides about an entry the clean slate left because a live endpoint may own its lladdr."
+    - "Must add at arm time the iptables rules tagged with the comment agent-net:<container> in DOCKER-USER and INPUT."
+    - "Must deny by default the traffic leaving the agent network from the container at IP-AGENT-NET and allow only two explicit egress rules, in the iptables rules tagged agent-net:<container>: (a) DNS rule: UDP and TCP port 53 to the DNS resolvers 1.1.1.1 (primary) and 9.9.9.9 (secondary) only; (b) endpoint rule: TCP port 443 to the endpoint names of the root-owned file /etc/agent-net/endpoints.json only (by default api.anthropic.com and platform.claude.com). Every other egress is dropped."
+    - "Must take the endpoint names of the endpoint rule (b) from the file /etc/agent-net/endpoints.json (JSON {\"endpoints\":[...]}), which must be owned by root and not group- or world-writable; when the file is absent the names are the two built-in names api.anthropic.com and platform.claude.com; when the file is present but invalid or writable, the arm and the check-gate fail. The file may be overwritten only by root and by the dedicated tool refresh_endpoints."
+    - "Must resolve the endpoint names of the endpoint rule (b) on the host at arm time, with the host system resolver, to the IPv4 addresses the rule uses (A records only; a name that has only AAAA records fails the arm; the addresses can change because the hosts are CDN-backed). The addresses stay pinned until the next arm or a manual refresh_endpoints."
+    - "Must receive the endpoints file from the Windows folder holding the tools (endpoints.json), as bytes over wsl.exe standard input (refresh_endpoints.exe on Windows, the same transport as create_agent_image), never by path; create_agent_host.exe installs it at host creation, and afterwards only refresh_endpoints (root) replaces it. Must let the tool refresh_endpoints validate the received file, resolve all names, atomically install it as /etc/agent-net/endpoints.json, and then update the endpoint rules of every armed container: all names are resolved first (on any failure nothing changes), and per armed container the new accept rules are inserted before the stale ones are deleted (not atomic across rules). IPv6 egress is dropped at the port by the policy drop of SFR-NET-024 (IPv6 frames are never accepted); whether the AAAA addresses are additionally handled is not defined (open item: IPv6 egress stays disabled, no rule is added)."
+    - "Must deny by default the traffic addressed to the host from the container at IP-AGENT-NET: in INPUT, from the container IP, first a rule accepting only ESTABLISHED,RELATED connection states (replies to flows the host initiated), then a rule dropping the rest, both tagged agent-net:<container>. Whether published ports are bound to host loopback is not checked by this tool; it is the concern of the container creation tool."
+    - "Must not add the source identity accept rules (source MAC and IPv4 source, ARP sender MAC and IP pinned to the declared pair) before the release: they are added at release in the one atomic nft -f of SFR-NET-010, so that until then the port stays closed."
+
+  post_conditions:
+    - "Port isolation, the static FDB entry, the permanent neighbour entry, learning off, locked on and the tagged iptables rules are in place; the port is still closed."
+    - "Once released, there is no agent-to-agent forwarding, no false MAC or IP source identity, no ARP or neighbor poisoning and no egress beyond the allowed destinations."
+    - "The container can still reach the allowed destinations."

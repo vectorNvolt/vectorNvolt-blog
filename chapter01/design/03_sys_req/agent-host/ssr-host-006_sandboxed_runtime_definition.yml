@@ -1,0 +1,20 @@
+SSR-HOST-006:
+  title: "Define the sandboxed runtime in the container engine configuration of agent-host"
+  kind: "structural"
+  usecase_step_ref: "USC-001: steps 10, 12"
+
+  # Flags: systrap (no KVM under WSL2), network=sandbox (userspace network stack), net-raw=false (no raw sockets),
+  # allow-flag-override=false (no per-container change of runtimeArgs), overlay2=root:memory (root filesystem writes held in memory),
+  # file-access=exclusive and file-access-mounts=shared (gVisor file access modes), directfs=false (no direct file descriptor access to the host filesystem).
+  statement: "The system shall hold in the container engine configuration of the agent-host distro a runtime entry named runsc with the path /usr/local/bin/runsc and the runtime arguments --platform=systrap, --network=sandbox, --net-raw=false, --allow-flag-override=false, --overlay2=root:memory, --file-access=exclusive, --file-access-mounts=shared and --directfs=false."
+
+  condition: "For every start of the agent-host distro, from the verified creation until the distro is removed."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+
+  constraints:
+    - "Must show, in the container engine configuration file inside agent-host, the runtime entry runsc with path /usr/local/bin/runsc, checked as the user agent-operator, which SFR-HOST-012 writes."
+    - "Must show the runtime arguments of that entry equal to the eight listed arguments, in the listed order, with no further argument."
+    - "Must show the container engine reporting runsc among its runtimes, checked on the running distro as the user root, because only root accesses the container engine socket."
+    - "Must leave the host and dev-distro unchanged by construction, as SSR-HOST-005 states; no before/after comparison is made."

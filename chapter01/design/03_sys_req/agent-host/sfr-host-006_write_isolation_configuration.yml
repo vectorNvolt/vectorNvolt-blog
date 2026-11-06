@@ -1,0 +1,35 @@
+SFR-HOST-006:
+  title: "Write the isolation configuration into agent-host"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 7 (exception err-4)"
+
+  statement: "The system shall write the distro configuration that disables host drive access, host interoperation and host path inheritance, sets agent-operator as default user and enables the service manager at boot."
+
+  condition: "When the user agent-operator has been created."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must execute the write inside agent-host as the user root through IP-WSL-CLI."
+    - "Must write into the distro configuration of agent-host through IP-WSL-CLI: automatic mounting of host drives disabled."
+    - "Must write into the distro configuration of agent-host through IP-WSL-CLI: interoperation with host programs disabled and host path appending disabled."
+    - "Must write into the distro configuration of agent-host through IP-WSL-CLI: default user set to agent-operator."
+    - "Must write into the distro configuration of agent-host through IP-WSL-CLI: service manager enabled at boot."
+    - "Must write into the distro configuration of agent-host through IP-WSL-CLI: no re-adding of host drives from fstab, hostname agent-host, no generation of the hosts file and the resolver file from the host, a request for no host graphics passthrough and no host timezone."
+    - "Must write the hosts file of agent-host through IP-WSL-CLI as a regular file with the names localhost and agent-host, owned by root:root with mode 644."
+    - "Must not write the resolver file in this step: a resolver file written before the restart was found gone afterwards on a live run, and the remover is unidentified. SFR-HOST-008 writes it after the restart."
+    - "Must mask inside agent-host through IP-WSL-CLI, as symbolic links to the null device and before the restart, the resolver service, its monitor socket, its varlink socket and its packaged file-creation rule (by a file of the same name in the administrator file-creation directory), so that the resolver file stays a regular file at the next start."
+    - "Must install inside agent-host through IP-WSL-CLI, owned by root:root, a script that unmounts the host-injected mounts /mnt/wslg, /tmp/.X11-unix, /mnt/wsl and /usr/lib/wsl and unregisters the WSLInterop binfmt entries, and a service that runs it before the container engine, enabled by a symbolic link (the service manager may not be running yet); the script has mode 755 and the service and its container engine drop-in mode 644."
+    - "Must have that script block the host graphics device /dev/dxg, when it exists, by making /dev private and then bind-mounting the null device over it, so that the mount does not propagate to other distros; the device node is a shared kernel device under WSL and is never deleted or changed in mode. The unmount of /usr/lib/wsl by the same script is what leaves /usr/lib/wsl/lib and /usr/lib/wsl/drivers empty. An already masked node is left as is, and a failure fails the service."
+    - "Must make the container engine service require that service, so that the container engine does not start when the isolation fails."
+    - "Must leave the distro configuration file of agent-host owned by root:root and not writable by agent-operator."
+    - "Must, when the write fails, stop, report the failed step to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 2."
+
+  post_conditions:
+    - "No setting of the distro configuration of any distro other than agent-host has been changed."
+    - "The distro configuration of agent-host holds the listed settings when the write succeeded."
+    - "The hosts file, the isolation script, the isolation service and its container engine drop-in of agent-host hold the listed content when the write succeeded."
+    - "The resolver service, its two sockets and its file-creation rule are masked in agent-host when the write succeeded."
+    - "The distro configuration file of agent-host is owned by root:root and not writable by agent-operator."

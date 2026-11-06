@@ -1,0 +1,20 @@
+SFR-IMG-001:
+  title: "Reject an invalid image tag or any other argument or flag before anything is created"
+  kind: "functional"
+  usecase_step_ref: "USC-003: step 1, err-1"
+
+  statement: "The system shall reject an invocation with an invalid image tag or with any argument or flag other than the image tag, including a flag naming a build environment, with a usage error and a failure exit status before anything is created."
+
+  condition: "When the developer invokes image creation with an image tag that does not match the permitted tag character rule, or with any other argument or flag."
+
+  interface_points:
+    - "IP-CLI-CREATE-AGENT-IMAGE Developer command-line entrypoint"
+
+  constraints:
+    - "Must write a usage error to the error output at IP-CLI-CREATE-AGENT-IMAGE."
+    - "Must return exit status 1 at IP-CLI-CREATE-AGENT-IMAGE."
+    - "Must show no call made to the agent-host, no image built and no file written when the usage error is reported."
+
+  post_conditions:
+    - "No image or other file has been created and the agent-host is unchanged."
+    - "The developer has the usage error and can repeat the invocation with a valid tag."

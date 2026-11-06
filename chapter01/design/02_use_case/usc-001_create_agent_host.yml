@@ -1,0 +1,313 @@
+# ==============================================================================
+# USC-001 — derived from USS-001 (design/01_user_story/uss-001_create_agent_host.md)
+# Interaction points and channels are defined in
+# design/00_system_boundary/interaction_points.yml (items marked `# proposed`
+# there are not yet confirmed by USS-001).
+# Derived, not stated in USS-001: exit codes 1/2 (proposed `exit_code` of
+# IP-CLI-CREATE-AGENT-HOST), the `exit_state` values, and the download retries
+# (proposed `retry_policy` of IP-ROOTFS-PROVIDER), the WSL version gate and the
+# argument rejection. USS-001 only requires
+# "reports success or failure".
+# ==============================================================================
+
+USC-001:
+  title: "Create the agent-host WSL2 distro with one command"
+  summary: "The developer runs a single Go executable that creates a dedicated WSL2 distro `agent-host` (no Windows drives, no Windows interop, own filesystem; not a VM, kernel or network boundary) with all required dependencies, the seven Linux tools `create_agent_container`, `remove_agent_container`, `create_agent_net`, `remove_agent_net`, `agent_lifecycle`, `enter_agent` and `refresh_endpoints` installed and the two lifecycle systemd units (`agent-restore.service`, `agent-guard.service`) enabled and running, and verifies the result, so agents run apart from `dev-distro` and Windows."
+
+  actors:
+    primary: "Developer"
+    supporting:
+      - "Provisioning tool (Go executable `create_agent_host`)"
+      - "WSL2 (`wsl.exe`)"
+      - "Ubuntu 26.04 rootfs source"
+      - "agent-host (new distro)"
+      - "dev-distro (developer's daily distro; builds all Go executables (precondition); unchanged by this use case; data transfer source, alt-1 only)"
+
+  interaction_points:
+    - ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+      direction: "inbound"
+      type: "cli_entrypoint"
+      boundary: "PowerShell 7.4+ host process -> Go executable (`create_agent_host`)"
+      transport: "Win32 process execution / standard I/O streams"
+      role: "primary entry (command invocation from PowerShell 7.4+) and exit (success/failure report, exit code)"
+    - ip_ref: "IP-DIST-ARTIFACT"
+      direction: "outbound"
+      type: "filesystem"
+      boundary: "Go process -> Windows filesystem (the folder the executable is run from, same directory as `create_agent_host.exe`: `create_agent_container`, `remove_agent_container`, `create_agent_net`, `remove_agent_net`, `agent_lifecycle`, `enter_agent`, `refresh_endpoints`, and `endpoints.json`)"
+      transport: "Win32 file read"
+      role: "tool reads the seven linux/amd64 builds and computes the SHA-256 of each as its reference hash, and reads and validates `endpoints.json`"
+    - ip_ref: "IP-WSL-CLI"
+      direction: "outbound"
+      type: "subprocess_cli"
+      boundary: "Go process -> Windows `wsl.exe`"
+      transport: "Anonymous pipes (stdio) to a child process"
+      role: "tool drives WSL2 (list, import, terminate, in-distro command execution incl. file delivery via stdin) to create, configure, provision and verify the distro"
+    - ip_ref: "IP-ROOTFS-PROVIDER"
+      direction: "outbound"
+      type: "http_client"
+      boundary: "Go process -> remote rootfs HTTPS source"
+      transport: "HTTPS"
+      role: "tool retrieves the Ubuntu 26.04 rootfs tarball used as the import source, the `SHA256SUMS` file published next to it and its detached signature `SHA256SUMS.gpg`"
+
+  preconditions:
+    - "Windows host with WSL2 available (WSL 2.4.10 or later, required by the Ubuntu 26.04 WSL image) and PowerShell 7.4+ in use"
+    - "All Go executables are built in `dev-distro` (the Go toolchain lives there), cross-compiled with GOOS/GOARCH and `CGO_ENABLED=0`; nothing is built on host Windows. Four modules -> seven binaries into `dist/` at the repo root: `packages/agent-host` -> `create_agent_host.exe` (windows/amd64); `packages/agent-image` -> `create_agent_image.exe` (windows/amd64, USC-003; neither read nor installed by `create_agent_host`); `packages/agent-net` -> `create_agent_net`, `remove_agent_net` (linux/amd64); `packages/agent-sandbox` -> `create_agent_container`, `remove_agent_container`, `agent_lifecycle` (linux/amd64). The built files are copied from `dist/` to the Windows folder the Windows executables are run from (e.g. `C:\\agent-setup`), together with `Dockerfile.agent` and `requirements.lock` (USS-003)"
+    - "No distro named `agent-host` is registered"
+    - "Network access to the rootfs source, to the package sources needed for the dependencies (incl. the gVisor apt repository) and to the Docker registry (the acceptance check pulls `hello-world`)"
+    - "A writable install directory on Windows for the imported distro (default `%LOCALAPPDATA%\\agent-host`; override with the environment variable `AGENT_HOST_INSTALL_DIR`)"
+
+  main_flow:
+    - step: 1
+      actor: "Developer"
+      action: "Runs `create_agent_host` (no arguments; any argument prints the usage and returns `exit_code: 1`, see err-9) in PowerShell 7.4+ on host Windows."
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "command invocation `create_agent_host`, args: [] — Developer -> Provisioning tool"
+    - step: 2
+      actor: "Provisioning tool"
+      action: "Runs operation `distro_list` (`wsl.exe -l -v`) and confirms no distro named `agent-host` is registered. Then checks that the WSL version reported by `wsl.exe --version` is 2.4.10 or newer (before anything is downloaded or imported)."
+      interaction_point:
+        ip_ref: "IP-WSL-CLI"
+        channel: "CHAN-WSL-EXEC"
+        object_flow: "`wsl.exe -l -v`; stdout listing of registered distros, then `wsl.exe --version`; stdout with the WSL version — Provisioning tool -> WSL2, results back to Provisioning tool"
+    - step: 3
+      actor: "Provisioning tool"
+      action: "Reads the seven tools `create_agent_container`, `remove_agent_container`, `create_agent_net`, `remove_agent_net`, `agent_lifecycle`, `enter_agent` and `refresh_endpoints` from the Windows folder it is run from (same directory as `create_agent_host.exe`) and computes the SHA-256 of each (reference hashes). Also reads `endpoints.json` from the same folder and validates it (JSON `{\"endpoints\":[...]}`, non-empty list of unique host names, no unknown keys). Done before any change so a missing build or a missing or invalid `endpoints.json` aborts early (ordering derived, not stated in USS-001)."
+      interaction_point:
+        ip_ref: "IP-DIST-ARTIFACT"
+        channel: "CHAN-FS-DIST"
+        object_flow: "file bytes of `create_agent_container`, `remove_agent_container`, `create_agent_net`, `remove_agent_net`, `agent_lifecycle`, `enter_agent`, `refresh_endpoints` and `endpoints.json` (in the folder the tool runs from) — Windows filesystem -> Provisioning tool"
+    - step: 4
+      actor: "Provisioning tool"
+      action: "Downloads the Ubuntu 26.04 rootfs tarball, the `SHA256SUMS` file published next to it and `SHA256SUMS.gpg` (HTTP GET) into a temporary file on Windows. Accepts `SHA256SUMS` only if `SHA256SUMS.gpg` is a good signature by the pinned Ubuntu CD image signing key (fingerprint `843938DF228D22F7B3742BC0D94AA3F0EFE21092`, shipped with the tool, not fetched), and accepts the tarball only if its SHA-256 matches its entry in the accepted `SHA256SUMS`."
+      interaction_point:
+        ip_ref: "IP-ROOTFS-PROVIDER"
+        channel: "CHAN-HTTPS"
+        object_flow: "requests `GET ${url}` (default `https://releases.ubuntu.com/26.04.1/ubuntu-26.04.1-wsl-amd64.wsl`, override `AGENT_HOST_ROOTFS_URL`), `GET ${sums_url}` (default `SHA256SUMS` in the same directory, override `AGENT_HOST_ROOTFS_SHA256SUMS_URL`) and `GET ${sums_url}.gpg`, responses status 200 with tarball body, checksum list and signature — Rootfs source -> Provisioning tool"
+    - step: 5
+      actor: "Provisioning tool"
+      action: "Runs operation `distro_import` (`wsl.exe --import agent-host <install_dir> <rootfs_tarball> --version 2`), creating the distro as WSL version 2 in an install directory on Windows (created if missing)."
+      interaction_point:
+        ip_ref: "IP-WSL-CLI"
+        channel: "CHAN-WSL-EXEC"
+        object_flow: "`--import` with `agent-host`, `<install_dir>`, `<rootfs_tarball>`, `--version 2` — Provisioning tool -> WSL2"
+    - step: 6
+      actor: "Provisioning tool"
+      action: "Runs operation `guest_exec` (`wsl.exe -d agent-host -u root -e <command>`) to first remove the image user `ubuntu` and group `ubuntu` only if present (the 26.04 image ships none; earlier images held GID 1001), then create the non-root default user `agent-operator` (no sudo, not in the `docker` group, no supplementary group beyond its primary group) with the pinned numeric UID 1001 and GID 1001 (explicit, not the next free UID; identical to the non-root image user in USS-003; fails if another user or group holds 1001)."
+      interaction_point:
+        ip_ref: "IP-WSL-CLI"
+        channel: "CHAN-WSL-EXEC"
+        object_flow: "`-d agent-host -u root -e <user-creation command with UID 1001>` — Provisioning tool -> agent-host"
+    - step: 7
+      actor: "Provisioning tool"
+      action:
+        - "Runs operation `guest_exec` to write `/etc/wsl.conf` in `agent-host` with:"
+        - "`[automount] enabled=false` and `mountFsTab=false` (no `/mnt/c`, and `/etc/fstab` cannot re-add drvfs mounts)"
+        - "`[interop] enabled=false` and `appendWindowsPath=false` (no Windows binaries, no Windows PATH)"
+        - "`[network] hostname=agent-host`, `generateHosts=false` and `generateResolvConf=false` (`/etc/hosts` and `/etc/resolv.conf` are not generated from Windows)"
+        - "`[gpu] enabled=false` (requests no GPU passthrough; the `/dev/dxg` node is a shared kernel device and is blocked by the isolate service, which also unmounts `/usr/lib/wsl`) and `[time] useWindowsTimezone=false`"
+        - "`[user] default=agent-operator`"
+        - "`[boot] systemd=true`"
+        - "`/etc/wsl.conf` is `root:root` and not writable by `agent-operator`"
+        - "Then writes `/etc/hosts` (`localhost` and `agent-host` on `127.0.1.1`), `root:root` mode 644 with the same stdin delivery. `/etc/resolv.conf` is not written here but in step 9: on a live run (Ubuntu 26.04 WSL) a `/etc/resolv.conf` written in this step was gone after the restart of step 8, while `/etc/hosts` survived. What removes it is unidentified (not this tool, not cloud-init, not dhcpcd, not a tmpfiles rule, nothing in the journal)."
+        - "Then masks systemd-resolved with symlinks to `/dev/null`, so that it cannot turn `/etc/resolv.conf` into a symlink at the next start: the service, its monitor and varlink sockets, and its packaged tmpfiles rule (by a file of the same name in `/etc/tmpfiles.d`)"
+        - "Then installs, `root:root`, `/usr/local/libexec/agent-host-isolate` (mode 755), `/etc/systemd/system/agent-host-isolate.service` (mode 644, `Type=oneshot`, `RemainAfterExit=yes`, `Before=docker.service`, `WantedBy=multi-user.target`) and `/etc/systemd/system/docker.service.d/agent-host-isolate.conf` (mode 644, `Requires` and `After` `agent-host-isolate.service`, so that docker.service does not start when isolation fails; text in `packages/agent-host/internal/steps/isolation_units.go` and `scripts/agent_host_isolate.sh`). The script unmounts `/mnt/wslg`, `/tmp/.X11-unix`, `/mnt/wsl` and `/usr/lib/wsl`, which WSL injects into every distro regardless of `wsl.conf`, fails if one is still mounted, blocks `/dev/dxg` when it exists (`mount --make-private /dev`, then `mount --bind /dev/null /dev/dxg`; the node is a shared kernel device under WSL, so it is neither deleted nor changed in mode) and unregisters the `WSLInterop` and `WSLInterop-late` binfmt entries. The service is enabled with the symlink `/etc/systemd/system/multi-user.target.wants/agent-host-isolate.service` (not `systemctl enable`, as systemd may not be running yet); it runs at the next start."
+      interaction_point:
+        ip_ref: "IP-WSL-CLI"
+        channel: "CHAN-WSL-EXEC"
+        object_flow: "`-d agent-host -u root -e /bin/sh -c 't=\"$1.tmp\" && cat > \"$t\" && chown root:root \"$t\" && chmod \"$2\" \"$t\" && mv -f \"$t\" \"$1\"' sh /etc/wsl.conf 644` with `/etc/wsl.conf` content as above on stdin; the same for `/etc/hosts` and the three isolation files (script with mode 755); `/bin/mkdir -p` of their directories and `/bin/ln -sf ../agent-host-isolate.service /etc/systemd/system/multi-user.target.wants/agent-host-isolate.service` — Provisioning tool -> agent-host"
+    - step: 8
+      actor: "Provisioning tool"
+      action: "Runs operation `distro_terminate` (`wsl.exe --terminate agent-host`) to apply `wsl.conf`; this only stops the distro, which restarts on the next command."
+      interaction_point:
+        ip_ref: "IP-WSL-CLI"
+        channel: "CHAN-WSL-EXEC"
+        object_flow: "`wsl.exe --terminate agent-host` — Provisioning tool -> WSL2"
+    - step: 9
+      actor: "Provisioning tool"
+      action:
+        - "Runs operation `guest_exec` as root to first wait for systemd to finish starting (`/bin/sh -c 'timeout 120 systemctl is-system-running --wait >/dev/null 2>&1; exit 0'`; it never fails the step, because a healthy-enough system can report `degraded`, for instance when `user@0.service` fails over a shared cgroup, and `is-system-running` then exits non-zero), then write `/etc/resolv.conf` (`nameserver 1.1.1.1` and `nameserver 9.9.9.9`, `root:root` mode 644, stdin delivery as in step 7; it becomes a regular file: the write replaces a symlink to `/mnt/wsl/resolv.conf` if there is one). It is written here and not in step 7 because a file written before the step 8 restart was found gone afterwards on a live run; the remover is unidentified. A file written after that boot survived `wsl --terminate` and restarts; step 12 verifies it. A failed write stops the run with exit status 2. Then remove" the empty, unmounted `/mnt/<single character>` directories created at first boot (so `/mnt/c` is absent; a mounted or non-empty one stops the run), then install the dependencies inside `agent-host` only (nothing changes on Windows or in `dev-distro`). The 12 dependencies below are 13 packages:"
+        - "ca-certificates, curl and gnupg (installed by `install_deps.sh`; used to fetch the gVisor apt repository key and check it before the repository is trusted)"
+        - "Docker engine (Ubuntu archive packages `docker.io` and `docker-buildx`; `docker-buildx` provides BuildKit, which `create_agent_image` needs for `docker build --progress=plain`, as the legacy builder is deprecated); the service is enabled and started (`systemctl enable --now docker`)"
+        - "gVisor (`runsc`) from the gVisor apt repository; the key downloaded from `https://gvisor.dev/archive.key` must have the pinned primary key fingerprint (trust on first use; override `AGENT_HOST_GVISOR_KEY_FINGERPRINT`), otherwise the run stops and the repository is not trusted; apt then checks the packages against that key (signed-by)"
+        - "Python 3"
+        - "gnome-keyring"
+        - "git (on `agent-host` only; not in the agent container)"
+        - "tar"
+        - "nftables (`nft`; used by `create_agent_net arm` (USS-004) for per-port netdev tables)"
+        - "iptables (host-side `DOCKER-USER` / `INPUT` rules set by `create_agent_net` (USS-004))"
+        - "iproute2 (`ip` and `bridge`; used by `create_agent_net` (USS-004) for the bridge port flags, the static FDB entry and the veth lookup)"
+      interaction_point:
+        ip_ref: "IP-WSL-CLI"
+        channel: "CHAN-WSL-EXEC"
+        object_flow: "`-d agent-host -u root -e <install commands>` — Provisioning tool -> agent-host"
+    - step: 10
+      actor: "Provisioning tool"
+      action:
+        - "Runs operation `guest_exec` as root to register `runsc` as a Docker runtime and apply it:"
+        - "`/usr/local/bin` is made `root:root` mode 755 and `runsc` is copied there"
+        - "`runsc install` (writes the runtime into `/etc/docker/daemon.json` inside `agent-host`)"
+        - "`runsc` is registered in `/etc/docker/daemon.json` as a runtime with path `/usr/local/bin/runsc` and exactly these runtimeArgs: `--platform=systrap`, `--network=sandbox`, `--net-raw=false`, `--allow-flag-override=false`, `--overlay2=root:memory`, `--file-access=exclusive`, `--file-access-mounts=shared`, `--directfs=false`"
+        - "`/etc/docker/daemon.json` is `root:root` and not writable by `agent-operator`"
+        - "`systemctl restart docker`"
+        - "USS-001 is the only owner of this registration; other USSs never touch `daemon.json`."
+      interaction_point:
+        ip_ref: "IP-WSL-CLI"
+        channel: "CHAN-WSL-EXEC"
+        object_flow: "`-d agent-host -u root -e runsc install`, then `-d agent-host -u root -e systemctl restart docker` — Provisioning tool -> agent-host"
+    - step: 11
+      actor: "Provisioning tool"
+      action:
+        - "For each `<name>` in `create_agent_container`, `remove_agent_container` (USS-002, USS-006), `create_agent_net`, `remove_agent_net` (USS-004, USS-007), `agent_lifecycle` (restore and guard), `enter_agent`, `refresh_endpoints`: runs operation `guest_install_stdin` to install it into `/usr/local/bin/` as `root:root`, mode 755 (they run as root, so only root may replace them; root invokes the installed tools by their absolute path `/usr/local/bin/<name>`):"
+        - "`Get-Content -LiteralPath $bin -AsByteStream -Raw | wsl.exe -d agent-host -u root -e /bin/sh -c 't=\"$1.tmp\" && cat > \"$t\" && chown root:root \"$t\" && chmod \"$2\" \"$t\" && mv -f \"$t\" \"$1\"' sh /usr/local/bin/<name> 755` (`$bin` is the Windows copy of `<name>` in the folder the tool runs from; `install /dev/stdin` is not used because the Ubuntu 26.04 rootfs ships uutils coreutils, whose `install` fails to read `/dev/stdin` under `wsl.exe -e`)"
+        - "Then runs `guest_exec` `sha256sum /usr/local/bin/<name>` and compares the result with the reference hash from step 3."
+        - "Then writes the two lifecycle units with the same stdin delivery (`root:root`, mode 644; text in `packages/agent-host/internal/steps/lifecycle_units.go`): `/etc/systemd/system/agent-restore.service` (`Type=oneshot`, `RemainAfterExit=yes`, `Requires`, `After` and `PartOf` `docker.service`, runs `agent_lifecycle restore`, `ExecStopPost` removes `/run/agent-sandbox/ready`, `WantedBy=docker.service multi-user.target`) and `/etc/systemd/system/agent-guard.service` (`Type=simple`, `Restart=always`, runs `agent_lifecycle guard`). Runs `systemctl daemon-reload`, enables `docker.service` and both units, and starts them. The restore unit removes every `agent-*` container, rebuilds `agents-net` and its gate and writes the ready marker after each dockerd start; the guard unit (`agent_lifecycle guard`, a long-running process; the two units are both ordered after `docker.service` and not against each other) follows the engine events start, unpause, die and update and the network events connect and disconnect of the `agent-*` containers and reconciles at its start and every 60 s (`AGENT_SANDBOX_GUARD_RECONCILE`). While it holds the per-agent lock it runs the name-keyed disarm on `die` and `check-gate` on the other events, and removes a container whose gate check fails cleanly (exit 2); on an error it disarms first and removes only after a disarm that exited 0, otherwise it leaves the container in place. At reconcile it also evicts untagged elements of the gate set `released` and disarms names whose container is gone. It exits non-zero when the event stream ends so that `Restart=always` starts it again. The behaviour is specified by SFR-AGC-025, SFR-AGC-026, SFR-AGC-027, SFR-AGC-028, SSR-AGC-017 and SSR-AGC-018; it has no further step in a use case (it acts after USC-002 and on containers started outside the tools)."
+        - "Then seeds the model endpoints file: runs `Get-Content -LiteralPath $endpoints -AsByteStream -Raw | wsl.exe -d agent-host -u root -e /usr/local/bin/refresh_endpoints` (`$endpoints` is `endpoints.json` in the folder the tool runs from, read and validated in step 3; its bytes go over stdin, never a path), which validates the list, resolves all names on the host and installs `/etc/agent-net/endpoints.json` (`root:root`, mode 644). Then runs `guest_exec` `stat -c '%U:%G %a' /etc/agent-net/endpoints.json` and expects `root:root 644`. A non-zero exit of `refresh_endpoints` or another result fails the step with exit status 2."
+      interaction_point:
+        ip_ref: "IP-WSL-CLI"
+        channel: "CHAN-WSL-EXEC"
+        object_flow: "binary bytes of `$bin` piped by `Get-Content -AsByteStream -Raw` on stdin to `install`; stdout SHA-256 of the installed file, per binary; unit file text on stdin, then `systemctl daemon-reload`, `systemctl enable` and `systemctl start` for `docker.service`, `agent-restore.service` and `agent-guard.service` — Provisioning tool -> agent-host, hash back to Provisioning tool"
+    - step: 12
+      actor: "Provisioning tool"
+      action:
+        - "Verifies the acceptance criteria of USS-001 using `distro_list` and `guest_exec`:"
+        - "`wsl.exe -l -v` lists `agent-host` as version 2"
+        - "Docker, Python, gnome-keyring, git and tar are available inside `agent-host`"
+        - "`docker info --format '{{json .Runtimes}}'` has a `runsc` key (registered in `/etc/docker/daemon.json`; dockerd restarted in step 10)"
+        - "`docker run --rm --runtime=runsc hello-world` succeeds (the image is pulled from the Docker registry; run as root)"
+        - "`docker buildx version` succeeds (as root)"
+        - "`/mnt/c` is absent, no `drvfs` or host-drive 9p mount is in `/proc/mounts`, the `WSLInterop` binfmt entries are not registered and `powershell.exe` (the only host program probed) is not found on the command path"
+        - "`systemctl is-system-running` reports `running`; `degraded` is accepted (with a warning) only when the sole failed unit in `systemctl list-units --state=failed` is `user@0.service`, which WSL fails to start (\"Failed to spawn executor: Device or resource busy\"), any other failed unit or a failure to list units fails the check"
+        - "`nft --version`, `iptables --version`, `ip -V` and `bridge -V` succeed (as root)"
+        - "default user is `agent-operator`, `id -u agent-operator` is 1001, and `agent-operator` is in none of the groups `sudo`, `admin`, `wheel`, `adm`, `disk`, `lxd`, `libvirt`, `docker` (`id -nG agent-operator`) and has no sudoers entry (`sudo -n true` fails; a missing `sudo` binary also passes)"
+        - "`agent-operator`'s command search path (`PATH`) holds no host path entries"
+        - "`/usr/local/bin` is owned by root and not writable by `agent-operator`"
+        - "`/etc/wsl.conf` and `/etc/docker/daemon.json` are `root:root` and not writable by `agent-operator`; `/etc/wsl.conf` has the content written in step 7"
+        - "`/etc/resolv.conf` is a regular file, not a symlink, and `/etc/resolv.conf` and `/etc/hosts` have the content written in step 9 and step 7 respectively, are `root:root` and not writable by `agent-operator`; `hostname` prints `agent-host`"
+        - "`/mnt/wslg`, `/tmp/.X11-unix`, `/mnt/wsl` and `/usr/lib/wsl` are not mountpoints, `/dev/dxg` is absent or masked by `/dev/null`, and `/usr/lib/wsl/lib` and `/usr/lib/wsl/drivers` are empty"
+        - "`/usr/local/libexec/agent-host-isolate` has the expected content and is `root:root` mode 755; `/etc/systemd/system/agent-host-isolate.service` and `/etc/systemd/system/docker.service.d/agent-host-isolate.conf` have the expected content and are `root:root` mode 644; `agent-host-isolate.service` is enabled and active (exited)"
+        - "`/usr/local/bin/create_agent_container`, `/usr/local/bin/remove_agent_container`, `/usr/local/bin/create_agent_net`, `/usr/local/bin/remove_agent_net`, `/usr/local/bin/agent_lifecycle`, `/usr/local/bin/enter_agent` and `/usr/local/bin/refresh_endpoints` exist, are `root:root` with mode 755, and each SHA-256 matches its reference hash"
+        - "`/etc/systemd/system/agent-restore.service` and `/etc/systemd/system/agent-guard.service` have the expected content and are `root:root` mode 644; `docker.service`, `agent-restore.service` and `agent-guard.service` are enabled; `agent-guard.service` is active and `agent-restore.service` is active (exited)"
+        - "Docker/gVisor configuration exists only inside `agent-host`: the WSL adapter addresses only `agent-host`, so no command can target `dev-distro` or another distro (ensured by construction; host and `dev-distro` state is not measured before/after). On Windows the tool changes only the install directory and a temporary rootfs file that is removed when the run ends"
+      interaction_point:
+        ip_ref: "IP-WSL-CLI"
+        channel: "CHAN-WSL-EXEC"
+        object_flow: "`wsl.exe -l -v`; checks needing the Docker socket (`docker info`, `docker run`) and the `nft --version` / `iptables --version` / `ip -V` / `bridge -V` checks as `-d agent-host -u root -e <check command>` (`agent-operator` has neither sudo nor `docker` group membership); other checks, including tool availability on PATH (`command -v`), the absence of membership in the listed privileged groups, the no-sudo check (`sudo -n true` fails), the `PATH` check and the ownership/writability checks of `/usr/local/bin`, `/etc/wsl.conf` and `/etc/docker/daemon.json`, as `-d agent-host -u agent-operator -e <check command>`; stdout and exit status of each — Provisioning tool -> WSL2 / agent-host, results back to Provisioning tool"
+    - step: 13
+      actor: "Provisioning tool"
+      action: "Reports success on stdout and returns `exit_code: 0`."
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stdout success report, `exit_code: 0` — Provisioning tool -> Developer"
+
+  alternative_flows:
+    - id: "alt-1"
+      at_step: 1
+      condition: "Developer wants to move code or data into `agent-host` after creation (data transfer, placeholder in USS-001)"
+      behavior: "Out of scope of this use case; handled separately (host Windows -> agent-host and dev-distro -> agent-host via tar pipe or git remote)."
+
+  exception_flows:
+    - id: "err-9"
+      at_step: 1
+      condition: "The executable is invoked with any argument (derived, not stated in USS-001)"
+      system_reaction: "Stops before any other step, writes the usage (`usage: create_agent_host; takes no arguments`) to stderr and returns `exit_code: 1`."
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr usage message, `exit_code: 1` — Provisioning tool -> Developer"
+    - id: "err-10"
+      at_step: 2
+      condition: "The WSL version from `wsl.exe --version` is older than 2.4.10 or cannot be read (derived, not stated in USS-001)"
+      system_reaction: "Aborts before anything is downloaded or created, writes \"WSL 2.4.10 or newer is required; run `wsl --update`\" to stderr and returns `exit_code: 1`."
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Provisioning tool -> Developer"
+    - id: "err-8"
+      at_step: 2
+      condition: "`wsl.exe -l -v` fails (WSL2 unavailable) (derived, not stated in USS-001)"
+      system_reaction: "Aborts before changing anything, writes the captured `wsl.exe` error to stderr and returns `exit_code: 1`."
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report with the WSL error, `exit_code: 1` — Provisioning tool -> Developer"
+    - id: "err-1"
+      at_step: 2
+      condition: "A distro named `agent-host` is already registered (derived, not stated in USS-001)"
+      system_reaction: "Aborts before changing anything, leaves the existing distro untouched, writes the collision to stderr and returns `exit_code: 1`."
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report naming the existing distro, `exit_code: 1` — Provisioning tool -> Developer"
+    - id: "err-6"
+      at_step: 3
+      condition: "At least one of `create_agent_container`, `remove_agent_container`, `create_agent_net`, `remove_agent_net`, `agent_lifecycle`, `enter_agent`, `refresh_endpoints` or `endpoints.json` is missing or unreadable, or `endpoints.json` is invalid, in the folder the executable is run from (derived, not stated in USS-001)"
+      system_reaction: "Aborts before changing anything, writes each missing build path or the validation error to stderr and returns `exit_code: 1`."
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report naming the expected paths, `exit_code: 1` — Provisioning tool -> Developer"
+    - id: "err-2"
+      at_step: 4
+      condition: "Rootfs tarball, `SHA256SUMS` or `SHA256SUMS.gpg` cannot be downloaded (after retries; retry policy proposed in IP-ROOTFS-PROVIDER), the signature is not good, or the tarball's SHA-256 does not match its `SHA256SUMS` entry"
+      system_reaction: "Stops, writes the download or integrity failure to stderr and returns `exit_code: 1`; no distro has been created."
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report with the failed step, `exit_code: 1` — Provisioning tool -> Developer"
+    - id: "err-3"
+      at_step: 5
+      condition: "`distro_import` fails (e.g. install directory not writable)"
+      system_reaction: "Stops, writes the captured `wsl.exe` stderr to stderr and returns `exit_code: 2`."
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report with the WSL error, `exit_code: 2` — Provisioning tool -> Developer"
+    - id: "err-4"
+      at_step: "6-10"
+      condition: "A user creation, configuration, terminate, dependency installation (incl. a non-removable `/mnt/<c>` directory or a gVisor apt key whose fingerprint does not match the pinned one) or `runsc` registration step fails (steps 6-10)"
+      system_reaction: "Stops, reports the failed step on stderr and returns `exit_code: 2`. No rollback: the partially configured distro is left as is; the developer removes it with `wsl --unregister agent-host`."
+      exit_state: "PARTIALLY_CONFIGURED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report naming the failed step, `exit_code: 2` — Provisioning tool -> Developer"
+    - id: "err-7"
+      at_step: 11
+      condition: "Installing one of the seven binaries or one of the two unit files fails, enabling or starting the units fails, or a binary's SHA-256 inside `agent-host` does not match the reference hash"
+      system_reaction: "Stops, writes the binary or unit name and the install error or both hashes to stderr and returns `exit_code: 2`. No rollback: a mismatching binary is not removed; the developer removes the distro with `wsl --unregister agent-host`."
+      exit_state: "PARTIALLY_CONFIGURED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report with binary name and install error or expected/actual hash, `exit_code: 2` — Provisioning tool -> Developer"
+    - id: "err-5"
+      at_step: 12
+      condition: "At least one acceptance check fails (e.g. `/mnt/c` present, `runsc` not in Docker runtimes, gVisor container does not run, systemd not `running` (or `degraded` with a failed unit other than `user@0.service`), UID of `agent-operator` not 1001, `agent-operator` has a sudoers entry or is in one of the groups `sudo`, `admin`, `wheel`, `adm`, `disk`, `lxd`, `libvirt`, `docker`, `PATH` of `agent-operator` holds a host path entry, `/usr/local/bin`, `/etc/wsl.conf` or `/etc/docker/daemon.json` not root-owned or writable by `agent-operator`, `nft --version`/`iptables --version`/`ip -V`/`bridge -V` fails, a binary's owner/mode/hash wrong, a lifecycle unit file's content/owner/mode wrong, a unit not enabled, `agent-guard.service` not active or `agent-restore.service` not active (exited))"
+      system_reaction: "Writes each failed check to stderr and returns `exit_code: 2`; success is not reported. No rollback; the developer removes the distro with `wsl --unregister agent-host`."
+      exit_state: "UNVERIFIED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-PS-CONSOLE"
+        object_flow: "stderr failure report listing failed checks, `exit_code: 2` — Provisioning tool -> Developer"
+
+  postconditions:
+    - "`wsl.exe -l -v` lists `agent-host` as WSL version 2"
+    - "`agent-host` has no `/mnt/c`, no Windows interop and no Windows PATH; default user is `agent-operator` with UID 1001, no sudoers entry, in none of the groups `sudo`, `admin`, `wheel`, `adm`, `disk`, `lxd`, `libvirt`, `docker`; its `PATH` holds no host path entries; `/usr/local/bin`, `/etc/wsl.conf`, `/etc/resolv.conf`, `/etc/hosts` and `/etc/docker/daemon.json` are `root:root` and not writable by it; systemd is running"
+    - "`/etc/wsl.conf` holds the listed settings; `/etc/resolv.conf` is a regular file naming `1.1.1.1` and `9.9.9.9`; the hostname is `agent-host`; `agent-host-isolate.service` is enabled and active (exited), `/mnt/wslg`, `/tmp/.X11-unix`, `/mnt/wsl` and `/usr/lib/wsl` are not mountpoints, `/dev/dxg` is absent or masked by `/dev/null`, and `/usr/lib/wsl/lib` and `/usr/lib/wsl/drivers` are empty; docker requires the isolate service, so it does not start if isolation fails"
+    - "Docker engine (`docker.io`, with `docker-buildx`; service enabled and running), gVisor (`runsc`), Python 3, gnome-keyring, git, tar, nftables (`nft`), iptables, iproute2 (`ip`, `bridge`), ca-certificates, curl and gnupg are available in `agent-host`"
+    - "`runsc` is registered as a Docker runtime in `/etc/docker/daemon.json` inside `agent-host` (path `/usr/local/bin/runsc`, exactly the eight runtimeArgs `--platform=systrap`, `--network=sandbox`, `--net-raw=false`, `--allow-flag-override=false`, `--overlay2=root:memory`, `--file-access=exclusive`, `--file-access-mounts=shared`, `--directfs=false`) and dockerd was restarted afterwards"
+    - "`/usr/local/bin/create_agent_container`, `/usr/local/bin/remove_agent_container`, `/usr/local/bin/create_agent_net`, `/usr/local/bin/remove_agent_net`, `/usr/local/bin/agent_lifecycle`, `/usr/local/bin/enter_agent` and `/usr/local/bin/refresh_endpoints` are installed as `root:root`, mode 755, each with the same SHA-256 as its Windows copy (built in `dev-distro` into `dist/`)"
+    - "`agent-restore.service` and `agent-guard.service` are installed (`root:root`, 644), enabled and running; `agents-net` and its gate exist and `/run/agent-sandbox/ready` is written after each dockerd start; the guard removes an agent container that is started, unpaused, restarted or reconnected with its gate not passing `check-gate`, after a successful disarm (a failed disarm leaves it in place), and does not re-arm it"
+    - "Docker/gVisor configuration exists only inside `agent-host`; `dev-distro` is untouched and Windows is changed only by the install directory (the temporary rootfs file is removed at the end). This is a structural guarantee (the WSL adapter addresses only `agent-host`), not a before/after measurement"
+    - "Isolation scope: all WSL2 distros still share one VM (kernel, network); `agent-host` is not a VM, kernel or network boundary. The isolation limits the distro's reach toward Windows; it does not block `wsl -d agent-host` or `\\\\wsl.localhost\\agent-host` from Windows"
+    - "The whole setup was produced by one run of `create_agent_host`"

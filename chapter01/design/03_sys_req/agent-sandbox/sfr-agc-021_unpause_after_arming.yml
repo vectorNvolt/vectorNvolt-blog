@@ -1,0 +1,22 @@
+SFR-AGC-021:
+  title: "Release the container by unpausing it only after the arming is verified"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 7 (exception err-11)"
+
+  statement: "The system shall release the container by unpausing it only after the host-side controls are applied and read back, and shall contain it when the unpause fails."
+
+  condition: "When the arming of SFR-AGC-007 has passed, including its read-back."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must not request the unpause through IP-DOCKER-ENGINE before every control is applied and read back, so that no exec in the container, and so no agent work, can happen before the release; no agent process runs at container start (SFR-AGC-031), and the agent is started later only by docker exec -u 1001, which SSR-AGC-002 holds."
+    - "Must, when the unpause fails, read the paused state from the inspected container: a container still paused is left paused, armed and unreleased; any other or unreadable state is contained as SFR-AGC-009 defines."
+    - "Must, after a successful unpause, continue with the /etc/resolv.conf check of SFR-AGC-024 and then the final verification of SFR-AGC-009; the exec of the check is the first exec in the container (a fixed command of the creation tool, not agent work) and docker exec cannot be used on the paused container, which is why the check follows the unpause. The execs of the creation tool all precede the success report; the agent exec of SFR-AGC-031 follows it."
+    - "Must not remove the armed container after a failed unpause, and must write the failure to the error output at IP-CLI-CREATE-AGENT-CONTAINER and return exit status 2, which SFR-AGC-011 defines."
+
+  post_conditions:
+    - "No agent work ran before the unpause, and the unpause did not precede the verified arming."
+    - "After a failed unpause the container is paused, or the developer holds a report that names it as unsafe."

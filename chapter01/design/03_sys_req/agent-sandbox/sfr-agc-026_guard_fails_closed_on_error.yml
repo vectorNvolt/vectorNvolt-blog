@@ -1,0 +1,23 @@
+SFR-AGC-026:
+  title: "Disarm first and remove only after a successful disarm when the guard cannot decide"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 11 (units installed); the runtime behaviour has no use case step"
+
+  statement: "The system shall, when the guard cannot establish whether an agent container is gated, disarm its port first and remove the container only when that disarm exited 0."
+
+  condition: "When the existence check of an agent container fails, or its check-gate cannot be run or exits 1."
+
+  interface_points:
+    - "IP-AGENT-LIFECYCLE Lifecycle units"
+    - "IP-AGENT-NET Agent network control"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must call the disarm of IP-AGENT-NET for the container name before any removal."
+    - "Must remove the container through the remove path of SFR-AGC-017 only when the disarm exited 0."
+    - "Must, when the disarm exits non-zero or cannot be run, leave the container in place and pause it if possible, as SSR-AGC-016 and SFR-AGC-008 require for every removal."
+    - "Must log both outcomes (removed after disarm, or left in place) to the standard error (the journal)."
+
+  post_conditions:
+    - "No container was removed while its host-side rules were still applied."
+    - "A container left in place is retried at the next event or reconcile (SFR-AGC-027)."

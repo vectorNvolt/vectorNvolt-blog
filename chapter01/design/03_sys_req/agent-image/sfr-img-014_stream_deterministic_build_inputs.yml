@@ -1,0 +1,22 @@
+SFR-IMG-014:
+  title: "Stream exactly the two build inputs as a deterministic in-memory tar"
+  kind: "functional"
+  usecase_step_ref: "USC-003: step 5"
+
+  statement: "The system shall deliver exactly `Dockerfile.agent` and `requirements.lock` to the build in the agent-host as a deterministic tar stream held in memory."
+
+  condition: "When the build starts."
+
+  interface_points:
+    - "IP-IMAGE-BUILD-CONTEXT Image build inputs"
+    - "IP-IMAGE-BUILD-STREAM Image build inputs stream"
+
+  constraints:
+    - "Must build the tar from exactly `Dockerfile.agent` and `requirements.lock`, read at IP-IMAGE-BUILD-CONTEXT, and no other file."
+    - "Must order the tar entries by name and give every entry mode 0644, user and group id 0 and modification time 0."
+    - "Must send the tar on the standard input of the build at IP-IMAGE-BUILD-STREAM."
+    - "Must show no file written on the Windows host and no file copied into the agent-host for the build inputs."
+
+  post_conditions:
+    - "The same build inputs produce the same tar bytes."
+    - "No file holding the build inputs tar exists on the Windows host or in the agent-host after the run."

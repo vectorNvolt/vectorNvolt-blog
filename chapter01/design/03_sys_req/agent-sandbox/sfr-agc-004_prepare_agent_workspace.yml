@@ -1,0 +1,22 @@
+SFR-AGC-004:
+  title: "Prepare the per-agent workspace"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 3"
+
+  statement: "The system shall prepare one workspace folder with its .output subfolder for the agent identity under the Workspace-Agents root and hand both folders to the operating user."
+
+  condition: "When all prerequisite checks have passed."
+
+  interface_points:
+    - "IP-AGENT-WORKSPACE-FS Agent workspace folder"
+
+  constraints:
+    - "Must create the folder directly under the Workspace-Agents root at IP-AGENT-WORKSPACE-FS, at a path derived from the agent identity, and refuse any identity that would resolve outside that root."
+    - "Must create the .output subfolder inside the workspace folder when it is missing."
+    - "Must reuse a folder that already exists at that path, and an existing .output subfolder, without error and without changing or deleting their contents."
+    - "Must hand ownership of the workspace folder and of the .output subfolder to the operating user, whether each was created by this run or reused; the ownership change applies to the two folders themselves and is not recursive."
+    - "Must create nothing else inside the workspace folder."
+
+  post_conditions:
+    - "No folder outside the Workspace-Agents root has been created or changed, and no existing content has been deleted."
+    - "The workspace folder for the agent identity and its .output subfolder exist, are owned by the operating user and are available to mount."

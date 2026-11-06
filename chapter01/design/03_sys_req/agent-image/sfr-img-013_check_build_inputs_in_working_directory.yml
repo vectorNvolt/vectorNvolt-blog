@@ -1,0 +1,24 @@
+SFR-IMG-013:
+  title: "Check the build inputs in the current working directory before any call to the agent-host"
+  kind: "functional"
+  usecase_step_ref: "USC-003: step 1, err-2"
+
+  statement: "The system shall check that `Dockerfile.agent` and `requirements.lock` exist as regular files in the current working directory on the Windows host and stop with the missing file named and no call made to the agent-host when either is missing."
+
+  condition: "When the invocation has been accepted and before any call to the agent-host."
+
+  interface_points:
+    - "IP-IMAGE-BUILD-CONTEXT Image build inputs"
+    - "IP-CLI-CREATE-AGENT-IMAGE Developer command-line entrypoint"
+
+  constraints:
+    - "Must check at IP-IMAGE-BUILD-CONTEXT that `Dockerfile.agent` and `requirements.lock` each exist as a regular file in the current working directory."
+    - "Must accept a build input that is a regular file after symbolic links are followed (`os.Stat`), so a symbolic link to a regular file passes; a missing file, a directory, or a link to anything other than a regular file fails the check. The check is made in the order `Dockerfile.agent`, `requirements.lock`, and stops at the first failing file."
+    - "Must write a failure report naming the missing file to the error output at IP-CLI-CREATE-AGENT-IMAGE, with the message `build file <name> not found as a regular file in <current directory>`."
+    - "Must, when both files pass, write the line `build context directory: <current directory>` to the standard output at IP-CLI-CREATE-AGENT-IMAGE, and use that directory as the source of the build inputs streamed to the agent-host."
+    - "Must return exit status 1 at IP-CLI-CREATE-AGENT-IMAGE when a build input is missing."
+    - "Must show zero calls made to the agent-host when a build input is missing."
+
+  post_conditions:
+    - "Nothing has been created and the agent-host is unchanged and uncontacted when a build input was missing."
+    - "When both files exist, the run continues with the check of the agent-host Docker engine."

@@ -1,0 +1,25 @@
+SFR-IMG-003:
+  title: "Build the agent image in the agent-host Docker engine from the build inputs"
+  kind: "functional"
+  usecase_step_ref: "USC-003: step 5, err-4"
+
+  statement: "The system shall build the Linux agent image directly in the agent-host Docker engine as root from the build inputs and stop with a failure report when an image content source fails or the build fails."
+
+  condition: "When the agent-host Docker engine has been confirmed reachable and, if the target image already exists, the developer has confirmed the replacement."
+
+  interface_points:
+    - "IP-IMAGE-BUILD-STREAM Image build inputs stream"
+    - "IP-IMAGE-CONTENT-SOURCE Image content source"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-IMAGE Developer command-line entrypoint"
+
+  constraints:
+    - "Must build the image as root in the agent-host Docker engine at IP-DOCKER-ENGINE from the build inputs received at IP-IMAGE-BUILD-STREAM and the content obtained at IP-IMAGE-CONTENT-SOURCE."
+    - "Must write a failure report with the build error to the error output at IP-CLI-CREATE-AGENT-IMAGE when an image content source is unreachable (including no network access of the agent-host) or when an installation step of the build fails."
+    - "Must return exit status 1 at IP-CLI-CREATE-AGENT-IMAGE when the build fails."
+    - "Must show no file written on the Windows host and no container started by the build."
+
+  post_conditions:
+    - "The run stopped with the build error reported and without verification when the build failed."
+    - "When the build failed, no new image exists under the requested tag; a previously existing image under that tag is kept unchanged (no rollback is needed, a failed build does not retag)."
+    - "When the build succeeded, the agent image exists in the agent-host Docker engine under the requested tag."

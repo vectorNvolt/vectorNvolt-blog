@@ -1,0 +1,26 @@
+SFR-HOST-005:
+  title: "Create the non-root default user in agent-host"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 6 (exception err-4)"
+
+  statement: "The system shall create the non-root user agent-operator inside the agent-host distro."
+
+  condition: "When the agent-host distro has been registered."
+
+  interface_points:
+    - "IP-WSL-CLI Virtualization subsystem command-line interface"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must execute the user creation inside agent-host as the user root through IP-WSL-CLI."
+    - "Must, before creating agent-operator, remove the image default user ubuntu and group ubuntu only when present, so that no account holds the UID or GID 1001."
+    - "Must create agent-operator with the numeric UID 1001."
+    - "Must create agent-operator without any supplementary group beyond its primary group."
+    - "Must create agent-operator without granting it elevated-privilege (sudo) rights and without adding it to the docker group."
+    - "Must, when the user creation fails, stop, report the failed step to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 2."
+
+  post_conditions:
+    - "The user agent-operator has the UID 1001 and no supplementary group beyond its primary group when the creation succeeded."
+    - "No elevated-privilege (sudo) rights have been granted to agent-operator."
+    - "agent-operator is not a member of the docker group."
+    - "The user agent-operator exists in agent-host when the creation succeeded."

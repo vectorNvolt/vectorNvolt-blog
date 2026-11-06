@@ -1,0 +1,28 @@
+SFR-NET-025:
+  title: "Install and verify the agents-net gate at creation"
+  kind: "functional"
+  usecase_step_ref: "USC-004: step 4, step 5, err-8"
+
+  statement: "The system shall install, when it creates agents-net, a network-wide gate on the bridge device of the network that drops every frame to or from a container port until the container MAC is released, and shall verify the gate before it reports success."
+
+  condition: "When the creation request of agents-net has succeeded. The gate is installed (USC-004 step 4) right after the network is created and before the network inspection and the `daemon.json` comparison of SFR-NET-006 (USC-004 step 5), which also reads the gate back."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-AGENT-NET Agent network control"
+    - "IP-CLI-CREATE-AGENT-NET Developer command-line entrypoint"
+
+  constraints:
+    - "Must read the bridge device of agents-net (br-<id>) at IP-DOCKER-ENGINE from the created network, as inspected state."
+    - "Must load, at IP-AGENT-NET, the table netdev agents_gate with an ingress chain and an egress chain bound to the bridge device, both with policy drop, and the set released of Ethernet addresses (type ether_addr), in one atomic `nft -f -` that replaces an older table of that name; the set is declared without elements, so it is empty at creation (the emptiness is not read back)."
+    - "Must accept in the ingress chain only frames whose source MAC is in released and that carry the port mark (SFR-NET-034), clearing the mark when it accepts, and in the egress chain only frames whose destination MAC is in released, so that the gate covers container to host, DNS, routed egress and host to container."
+    - "Must insert at the top of DOCKER-USER (after deleting a gate rule of an older network) the iptables rule -i <bridge> -o <bridge> -m physdev --physdev-is-bridged -j DROP with the comment agent-net:gate, so that no traffic passes from one port to another port of the bridge while the containers are unarmed."
+    - "Must read bridge-nf-call-iptables and require it to be 1, and must never set it or any other host setting (SSR-NET-001); with another value, or when it cannot be read, it must install no gate and report the failed check, because the physdev rule would not see bridged frames. The check runs as the first action of the gate installation, after the network has been created (the bridge exists then) and before the gate is loaded, so this failure leaves the network in place: CREATED_UNVERIFIED, exit status 2."
+    - "Must not use the nftables bridge family (the agent-host kernel does not support it) and must not use ebtables."
+    - "Must verify, as inspected state, in the verification of SFR-NET-006 and again in the precondition of `arm` and `check-gate`, that bridge-nf-call-iptables is 1, that the table exists, that the set released exists with type ether_addr, that both chains are bound to the bridge device with policy drop and hold exactly the one accept rule on the released set (ether saddr with the mark condition and the mark clearing of SFR-NET-034 in ingress, ether daddr in egress; a gate without the mark is a mismatch), and that the tagged iptables rule is present in DOCKER-USER; the elements of released are not checked at creation; they are listed with their comments by `released` (SFR-NET-030) and removed by the disarm (SFR-NET-027) or by `evict` (SFR-NET-031). On a failed check it must write a failure report naming the failed check on the error output at IP-CLI-CREATE-AGENT-NET, report the exit state CREATED_UNVERIFIED and return exit status 2, leaving the network in place without rollback."
+
+    - "Note: the gate (nft tables and iptables rules) does not survive a dockerd or WSL restart while agents-net does. agent_lifecycle restore (unit agent-restore.service, USS-001) therefore removes the old agent containers, runs remove_agent_net and then create_agent_net after every dockerd start and writes /run/agent-sandbox/ready; create_agent_container waits for that marker. This requirement itself is unchanged: restore calls the same create_agent_net. A gate created before the mark existed fails the verification of `arm` and `check-gate` and must be recreated (remove_agent_net, then create_agent_net; restore does this at the next dockerd start)."
+
+  post_conditions:
+    - "agents-net exists with its gate closed: no frame to or from any port passes, and no port-to-port traffic is bridged."
+    - "No container MAC is in released, because the set is loaded empty by the creation (not verified by a read-back)."
