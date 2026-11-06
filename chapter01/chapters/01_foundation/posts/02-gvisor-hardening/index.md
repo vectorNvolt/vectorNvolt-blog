@@ -3,14 +3,15 @@ title: "Why I Granted SYS_ADMIN to Untrusted Agent Containers, and Why I Accept 
 type: dev
 code_tag: ch01_found/p01_p02_p03
 code_package: agent-sandbox
+code_url: https://github.com/vectorNvolt/vectorNvolt-blog/tree/ch01_found/p01_p02_p03/chapter01/packages/agent-sandbox
 slug: foundation-gvisor-hardening
 status: draft
 tags: [foundation, gvisor, isolation]
 custom_excerpt: "I grant SYS_ADMIN to untrusted agent containers because gVisor evaluates it inside the Sentry, not on the host. I walk through my runsc daemon.json flag by flag, compare runc with gVisor, and state the residual risk I accept."
 feature_image:
 links:
-  isolation-runtime:
-  howto-ch01:
+  isolation-runtime: https://vector-n-volt.ghost.io/foundation-isolation-runtime/
+  howto-ch01: https://github.com/vectorNvolt/vectorNvolt-blog/blob/ch01_found/p01_p02_p03/chapter01/howto/README.md
 ---
 
 <!--
@@ -30,7 +31,7 @@ OUTLINE (planning pass, not rendered). No requirement or threat-case IDs cited, 
 4. What this post leaves out (more-scope)
 5. References (more-refs)
 
-Links: isolation-runtime = post 01 of this chapter, empty until live.
+Links: isolation-runtime = post 01 of this chapter.
 
 TODO verify against the gVisor docs before publishing (body wording is conservative until then):
  - --file-access=exclusive together with --overlay2=root:memory: exact semantics and interaction.
@@ -225,8 +226,6 @@ This post argues three things: the `runsc` runtime is registered with one fixed 
 *Target environment:* a disposable Linux host with Docker, where you can run `docker` as your own user and where a manual operator step (root) registers the runtime. Nothing here was run on a host by me yet.
 
 *Full runbook:* the [chapter 1 runbook]({{link:howto-ch01}}) takes a bare Windows + WSL2 machine to a running agent container, including creating `agent-host` with the `runsc` runtime registered and creating the container with the capability set above (its sections 3 and 8 cover this post's runtime).
-<!-- TODO(author): fill links.howto-ch01 (URL of howto/README_CH01.md at the code tag) before publish -->
-
 <!--kg-card-begin: html-->
 <div style="border-left:4px solid #b91c1c;background:#fef2f2;color:#7f1d1d;padding:12px 16px;margin:1em 0;border-radius:4px;">
 
@@ -238,7 +237,7 @@ This post argues three things: the `runsc` runtime is registered with one fixed 
 
 ## Code references
 
-I name functions and constants, not line numbers, because line numbers drift. Paths are relative to `packages/agent-sandbox/` and link to the code tag once it exists.
+I name functions and constants, not line numbers, because line numbers drift. Paths are relative to `packages/agent-sandbox/` and link to the code tag.
 
 <!--kg-card-begin: html-->
 <details class="sec-more" id="more-code"><summary><span class="sec-more-show">Show the full section</span><span class="sec-more-hide">Hide the section</span></summary></details>

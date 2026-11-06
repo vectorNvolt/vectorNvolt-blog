@@ -3,14 +3,15 @@ title: "Atomic Sandboxing: Building a Closed-by-Default Network Gate for Agent C
 type: dev
 code_tag: ch01_found/p01_p02_p03
 code_package: agent-net
+code_url: https://github.com/vectorNvolt/vectorNvolt-blog/tree/ch01_found/p01_p02_p03/chapter01/packages/agent-net
 slug: foundation-closed-by-default-network-gate
 status: draft
 tags: [foundation, network, gvisor, nftables, go]
 custom_excerpt: "I build a closed-by-default network gate in Go for gVisor agent containers. They attach at creation, stay closed, and open with one atomic nftables release after the host-side controls verify. End-to-end runs and several host checks are still pending."
 feature_image:
 links:
-  gvisor-hardening:
-  howto-ch01:
+  gvisor-hardening: https://vector-n-volt.ghost.io/foundation-gvisor-hardening/
+  howto-ch01: https://github.com/vectorNvolt/vectorNvolt-blog/blob/ch01_found/p01_p02_p03/chapter01/howto/README.md
 ---
 
 <!--
@@ -33,7 +34,7 @@ OUTLINE (planning pass, not rendered). No requirement or threat-case IDs are cit
 7. What this post leaves out (more-scope)
 8. References (more-refs)
 
-Links: gvisor-hardening = post 02 of this chapter, empty until live. The built-in code link = this post's code tag (not cut yet).
+Links: gvisor-hardening = post 02 of this chapter. The built-in code link = this post's code tag.
 Islands: net-arch, net-arming (one bundle each, built by another author).
 
 Package facts checked against:
@@ -41,8 +42,6 @@ Package facts checked against:
  - packages/agent-sandbox: README.md, internal/sequence/guard.go, internal/services/reconcile.go.
  - packages/agent-image/Dockerfile.agent (PID 1 is tini, CMD dockerd).
 TODO before publishing:
- - Cut the code tag and fill code_tag.
- - Fill links: gvisor-hardening once post 02 is live.
  - Add a real end-to-end run (create, arm, check-gate, disarm, remove) as Observed evidence.
  - Run refresh_endpoints.exe on a live host (stdin install of endpoints.json, plus the seed at host creation) and record as Observed.
  - Run a live docker restart probe on agent-host: event sequence, whether MAC and IP are kept, new veth name, and what the guard does.
@@ -232,8 +231,6 @@ The accompanying code, the `agent-net` package, is a reference implementation of
 *Target Environment:* The commands run as root inside the `agent-host` distro and call `docker`, `ip`, `bridge`, `nft`, `iptables` and `nsenter` directly. They only read `daemon.json` (to hash it) and never write it, and they never reload or restart Docker. `bridge-nf-call-iptables` is read and required to be 1, never set.
 
 *Full runbook:* the [chapter 1 runbook]({{link:howto-ch01}}) takes a bare Windows + WSL2 machine to a running agent container, including building the binaries, creating `agent-host`, and updating the model endpoints (its sections 6, 8 and 10 cover this post's network gate).
-<!-- TODO(author): fill links.howto-ch01 (URL of howto/README_CH01.md at the code tag) before publish -->
-
 
 <!--kg-card-begin: html-->
 <div style="border-left:4px solid #b91c1c;background:#fef2f2;color:#7f1d1d;padding:12px 16px;margin:1em 0;border-radius:4px;">
@@ -283,8 +280,8 @@ According to the package README, `create_agent_container` and `remove_agent_cont
 <details class="sec-more" id="more-refs"><summary><span class="sec-more-show">Show the full section</span><span class="sec-more-hide">Hide the section</span></summary></details>
 <!--kg-card-end: html-->
 
-To reproduce, clone the tag once it is cut. The tag and the 40-hex commit sha are added at release.
+To reproduce, clone the tag.
 
 ```
-git clone --branch <code_tag> https://github.com/vectorNvolt/vectorNvolt-blog
+git clone --branch ch01_found/p01_p02_p03 https://github.com/vectorNvolt/vectorNvolt-blog
 ```

@@ -3,6 +3,7 @@ title: "Securing LLM Code Execution: Why I Chose gVisor Over Docker and VMs for 
 type: dev
 code_tag: ch01_found/p01_p02_p03
 code_package: agent-sandbox
+code_url: https://github.com/vectorNvolt/vectorNvolt-blog/tree/ch01_found/p01_p02_p03/chapter01/packages/agent-sandbox
 slug: foundation-isolation-runtime
 status: draft
 tags: [foundation, isolation, gvisor, sandboxing]
@@ -10,7 +11,7 @@ custom_excerpt: "My agent framework runs untrusted, LLM-generated scripts. I com
 feature_image:
 links:
   overview: /foundation-overview/
-  howto-ch01:
+  howto-ch01: https://github.com/vectorNvolt/vectorNvolt-blog/blob/ch01_found/p01_p02_p03/chapter01/howto/README.md
 ---
 
 <!--
@@ -423,8 +424,6 @@ The accompanying code, the `agent-sandbox` package, is a reference implementatio
 *Target Environment:* The command runs as root inside the `agent-host` distro and calls `docker` and `/usr/local/bin/create_agent_net` directly. It never reads or modifies `daemon.json` or any other host configuration.
 
 *Full runbook:* the [chapter 1 runbook]({{link:howto-ch01}}) takes a bare Windows + WSL2 machine to a running agent container, including building the binaries, creating `agent-host` with the `runsc` runtime, and creating the container (its sections 3 and 8 cover this post's runtime).
-<!-- TODO(author): fill links.howto-ch01 (URL of howto/README_CH01.md at the code tag) before publish -->
-
 
 <!--kg-card-begin: html-->
 <div style="border-left:4px solid #b91c1c;background:#fef2f2;color:#7f1d1d;padding:12px 16px;margin:1em 0;border-radius:4px;">
