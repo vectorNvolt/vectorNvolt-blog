@@ -4,8 +4,8 @@
 //   circle  = interaction point (IP-n), on the interface it crosses
 //   diamond = asset (AS-n), on the component that holds it
 //   square  = threat case (Tnx), where its attack path lands
-// Selecting any hotspot highlights the ones it is connected to (`related`)
-// and lists them in the panel together with the capability goals and the
+// Selecting a hotspot highlights only that hotspot; the panel lists the ones
+// it is connected to (`related`) together with the capability goals and the
 // requirements that hold there.
 //
 // Optional: an item may carry `code` — the files and functions that implement
@@ -139,7 +139,7 @@ export default function BlockDiagram({ id, layout, text }) {
           title={info?.name}
           desc={info?.desc}
           chips={chips}
-          hint={text.hint || "Circles are interaction points, diamonds assets, squares threat cases. Hover or click one to highlight what it connects to; the panel lists them with the capability goals (grey) and requirements (green) that hold there."}
+          hint={text.hint || "Circles are interaction points, diamonds assets, squares threat cases. Hover or click one to see what it connects to; the panel lists them with the capability goals (grey) and requirements (green) that hold there."}
         >
           {info?.code ? <div class="dg-panel-desc">Code: {info.code}</div> : null}
           {own?.note ? <div class="dg-panel-desc">{own.note}</div> : null}
@@ -190,7 +190,7 @@ export default function BlockDiagram({ id, layout, text }) {
           points={e.points}
           dir={e.dir}
           dashed={e.dashed}
-          active={shownId === e.id || related.includes(e.id)}
+          active={shownId === e.id}
         />
       ))}
       {layout.statusHalo
@@ -221,7 +221,6 @@ export default function BlockDiagram({ id, layout, text }) {
           x={h.at[0]}
           y={h.at[1]}
           active={shownId === h.id}
-          related={related.includes(h.id)}
           pressed={pinnedId === h.id}
           onSelect={select}
           onHover={setHover}

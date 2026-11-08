@@ -46,7 +46,7 @@ const runtime = {
   },
   blockText: {
     label: 'Block diagram of the gVisor runtime boundary: the agent process talks only to the Sentry, which reaches the host kernel through the Gofer and Netstack and through a narrow set of its own host syscalls; the rootfs overlay lives in host RAM and the runtime is registered in daemon.json with flag override disabled',
-    hint: 'Circles are interaction points, diamonds assets, squares threats; hover or click one to highlight what it connects to. The flags in each box are the settings this post applies.',
+    hint: 'Circles are interaction points, diamonds assets, squares threats; hover or click one to see what it connects to. The flags in each box are the settings this post applies.',
     items: {
       'IP-1': {
         name: 'Syscalls from the agent process',
