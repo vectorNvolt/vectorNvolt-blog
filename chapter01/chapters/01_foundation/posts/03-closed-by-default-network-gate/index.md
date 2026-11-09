@@ -98,6 +98,13 @@ details.sec-more:not([open]) .sec-more-hide {
 #more-refs:not([open]) ~ :not(h2, p:has(> a[id]:empty:only-child), #more-refs ~ h2 ~ *) {
   display: none;
 }
+
+/* ---- Inline code --------------------------------------------------------
+   The theme's light chip stays light in dark mode. A tint of the text colour
+   works in both modes; !important because the theme's selector is unknown. */
+:not(pre) > code {
+  background: color-mix(in srgb, currentColor 10%, transparent) !important;
+}
 </style>
 <!--kg-card-end: html-->
 
@@ -233,7 +240,7 @@ The accompanying code, the `agent-net` package, is a reference implementation of
 *Full runbook:* the [chapter 1 runbook]({{link:howto-ch01}}) takes a bare Windows + WSL2 machine to a running agent container, including building the binaries, creating `agent-host`, and updating the model endpoints (its sections 6, 8 and 10 cover this post's network gate).
 
 <!--kg-card-begin: html-->
-<div style="border-left:4px solid #b91c1c;background:#fef2f2;color:#7f1d1d;padding:12px 16px;margin:1em 0;border-radius:4px;">
+<div style="border-left:4px solid #b91c1c;background:color-mix(in srgb, #b91c1c 10%, transparent);padding:12px 16px;margin:1em 0;border-radius:4px;">
 
 **Run this evaluation harness strictly within an isolated, disposable environment.** This repository is an architectural reference pattern designed to benchmark isolation boundaries, not an off-the-shelf production system. Hardening an untrusted-code sandbox for enterprise multi-tenancy—including custom seccomp profiles, network egress filtering, and tenant quotas—requires environment-specific design.
 

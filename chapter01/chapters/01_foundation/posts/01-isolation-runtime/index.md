@@ -261,6 +261,13 @@ a.ref-link:focus-visible {
 .ref-pop p { margin: 0.35em 0; }
 .ref-pop ul { margin: 0.25em 0; padding-left: 1.3em; }
 .ref-pop li { margin: 0.15em 0; }
+
+/* ---- Inline code --------------------------------------------------------
+   The theme's light chip stays light in dark mode. A tint of the text colour
+   works in both modes; !important because the theme's selector is unknown. */
+:not(pre) > code {
+  background: color-mix(in srgb, currentColor 10%, transparent) !important;
+}
 </style>
 <!--kg-card-end: html-->
 
@@ -426,7 +433,7 @@ The accompanying code, the `agent-sandbox` package, is a reference implementatio
 *Full runbook:* the [chapter 1 runbook]({{link:howto-ch01}}) takes a bare Windows + WSL2 machine to a running agent container, including building the binaries, creating `agent-host` with the `runsc` runtime, and creating the container (its sections 3 and 8 cover this post's runtime).
 
 <!--kg-card-begin: html-->
-<div style="border-left:4px solid #b91c1c;background:#fef2f2;color:#7f1d1d;padding:12px 16px;margin:1em 0;border-radius:4px;">
+<div style="border-left:4px solid #b91c1c;background:color-mix(in srgb, #b91c1c 10%, transparent);padding:12px 16px;margin:1em 0;border-radius:4px;">
 
 **Run this evaluation harness strictly within an isolated, disposable environment.** This repository is an architectural reference pattern designed to benchmark isolation boundaries, not an off-the-shelf production system. Hardening an untrusted-code sandbox for enterprise multi-tenancy—including custom seccomp profiles, network egress filtering, and tenant quotas—requires environment-specific design.
 
