@@ -1,0 +1,21 @@
+SFR-AGE-002:
+  title: "Reject an invalid execution profile with nothing started"
+  kind: "functional"
+  usecase_step_ref: "USC-005: step 2 (exception exc-3)"
+
+  statement: "The system shall refuse to start an execution whose profile is invalid."
+
+  condition: "When the selected execution profile contains an unknown field or a value above a ceiling of the tool."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+
+  constraints:
+    - "Must load every profile from the workspace tool folder at IP-AGENT-RUN-WORKSPACE on each call, without a cache, so a changed profile is judged on its current content."
+    - "Must name the offending field in the diagnostic at IP-EXEC-TOOL-CLI and exit with status 125, cause `setup`."
+    - "Must start no container; a changed profile cannot widen what an execution container sees, which SSR-AGE-014 holds."
+
+  post_conditions:
+    - "No container was created and no input was staged for the call."
+    - "Other valid profiles remain usable and listable."

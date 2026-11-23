@@ -1,0 +1,22 @@
+SFR-AGT-006:
+  title: "Restrict execution profiles by the session mode"
+  kind: "functional"
+  usecase_step_ref: "USC-009: step 3 (exception exc-5, alternative alt-3)"
+
+  statement: "The system shall allow an execution-tool call only for a profile the session mode permits and deny it when the mode is missing or invalid."
+
+  condition: "When the agent calls the execution tool."
+
+  interface_points:
+    - "IP-TOOL-GUARD-HOOK Tool-call guard hook"
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+
+  constraints:
+    - "Must allow every subcommand (`run`, `build`, `install`, `tool`, `list`, `sweep`) of the execution tool."
+    - "Must accept any profile in `.tools/` in mode `interactive`, and only the profiles named in the permitted-profile list in mode `cognitive`."
+    - "Must deny every profile-bearing call at IP-TOOL-GUARD-HOOK with exit 2 when the mode is absent or invalid, or is `cognitive` with no permitted-profile list; never allow all."   # open: passing the environment to hooks
+    - "Must set the mode and the permitted-profile list of a cognitive step only from the run's process definition at IP-CLAUDE-CLI, which SFR-AGG-042 holds."
+
+  post_conditions:
+    - "No cognitive step ran a profile outside its permitted list; no call ran without a valid mode."
+    - "The interactive session keeps every operator-supplied profile."

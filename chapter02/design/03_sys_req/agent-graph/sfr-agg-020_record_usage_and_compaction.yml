@@ -1,0 +1,20 @@
+SFR-AGG-020:
+  title: "Record the token usage and compaction of each turn"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 10 (alternative alt-9)"
+
+  statement: "The system shall record the token usage of every turn and every compaction of a cognitive node session."
+
+  condition: "When a turn of a cognitive node session ends or the session compacts its history."
+
+  interface_points:
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must record input, cache-creation, cache-read, 1-hour and 5-minute cache tokens for each turn in the node's context record at IP-AGENT-RUN-WORKSPACE."
+    - "Must let the session compact inside the same session near the node budget without dropping the history, and record each compaction."
+
+  post_conditions:
+    - "Usage and compaction are traceable per node."
+    - "The session continued after a compaction."

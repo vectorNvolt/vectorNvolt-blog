@@ -1,0 +1,20 @@
+SFR-AGC-018:
+  title: "Verify that the container is gone"
+  kind: "functional"
+  usecase_step_ref: "USC-006: step 6, err-6"
+
+  statement: "The system shall read the engine again after the removal and confirm that the container no longer exists and has left no network state behind."
+
+  condition: "After a removal request for an existing container."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-REMOVE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must base the result on the engine state read after the removal, not on the removal request."
+    - "Must, in addition to the container absence, check the network state left by the container as SFR-AGC-030 defines, and not report the removal as done while that state is not clean."
+    - "Must report a container that still exists at IP-CLI-REMOVE-AGENT-CONTAINER with exit state REMOVE_FAILED and exit status 2, and a state that cannot be read with exit state NOT_REMOVED and exit status 2 (message `container removal could not be verified`)."
+
+  post_conditions:
+    - "A removal is reported as done only when the engine no longer lists the container and no network state of the container is left."

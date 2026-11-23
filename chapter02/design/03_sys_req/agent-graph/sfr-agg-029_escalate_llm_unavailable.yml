@@ -1,0 +1,22 @@
+SFR-AGG-029:
+  title: "Escalate when the language model is unavailable"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 10 (exception err-14)"
+
+  statement: "The system shall suspend the run when no Claude session can be used and tell the developer."
+
+  condition: "When the Claude client is not logged in, the endpoint is unreachable or the client process dies."
+
+  interface_points:
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must suspend with the checkpoint written and escalate to resolution (SFR-AGG-033) offering to wait and retry or to check the login; it must re-enter at the failed state."
+    - "Must tell the developer through the gateway without a Claude instance when the resolution instance is itself unavailable (open in USS-008)."
+    - "Must, on the developer's quit, report LLM_UNAVAILABLE with exit status 2."
+
+  post_conditions:
+    - "The run is resumable at the failed state."
+    - "The developer was told the cause."

@@ -1,0 +1,25 @@
+SFR-IMG-006:
+  title: "Replace an existing agent image only after developer confirmation"
+  kind: "functional"
+  usecase_step_ref: "USC-003: steps 3, 4, alt-2, err-6"
+
+  statement: "The system shall replace an agent image that already exists in the agent-host only after explicit confirmation by the developer, asked before the build."
+
+  condition: "When the agent-host Docker engine has been confirmed reachable and the target image already exists in the agent-host."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-IMAGE Developer command-line entrypoint"
+
+  constraints:
+    - "Must determine at IP-DOCKER-ENGINE whether the target image exists in the agent-host before anything is built."
+    - "Must classify the result of the existence check: the image is absent only when the Docker engine reports an explicit `no such image` result; any other failure of the check is an engine error, not an absent image, because the reachability proven before the check holds only at that moment."
+    - "Must write a failure report with the Docker error to the error output at IP-CLI-CREATE-AGENT-IMAGE, return exit status 1 and start no build and no prompt when the existence check ends in an engine error."
+    - "Must ask the developer for confirmation at IP-CLI-CREATE-AGENT-IMAGE before the build and continue only on an explicit affirmative answer, treating any other answer as a decline."
+    - "Must show the existing image kept and nothing built when the developer declines."
+    - "Must return exit status 0 at IP-CLI-CREATE-AGENT-IMAGE when the developer declines."
+
+  post_conditions:
+    - "The existing image has not been replaced or rebuilt without confirmation."
+    - "When the developer declined, the existing image remains unchanged and available, and the decline is not reported as a failure."
+    - "When the existence check ended in an engine error, nothing has been built and a previously existing image is unchanged."

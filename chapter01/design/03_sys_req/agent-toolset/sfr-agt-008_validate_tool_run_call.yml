@@ -1,0 +1,22 @@
+SFR-AGT-008:
+  title: "Validate a tool-run call against its profile"
+  kind: "functional"
+  usecase_step_ref: "USC-009: step 4 (exception exc-8, alternative alt-8)"
+
+  statement: "The system shall accept a tool-run call only when its profile, inputs and parameters match the operator-supplied profile."
+
+  condition: "When the agent calls the execution tool to run an engineering tool."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must take from the caller only the profile name, inputs by declared name and typed parameters at IP-EXEC-TOOL-CLI; no argument list, image, mount or option."
+    - "Must reject a profile whose kind is not `tool`, an input that does not match its declared name, folder, pattern, multiplicity or optionality, a missing non-optional input, and an unknown or mistyped parameter with exit 125, cause `usage`."
+    - "Must use an input under `src/` in place and copy any other input into the execution folder at IP-AGENT-RUN-WORKSPACE (one file per name, or a folder of files for a repeatable input), as the execution tool stages inputs (SFR-AGE-007)."
+    - "Must create nothing before the call is accepted, which SFR-AGE-001 holds."
+
+  post_conditions:
+    - "No execution folder or container exists for a rejected call."
+    - "A call that matches the profile proceeds to the input policy, SFR-AGT-009."

@@ -1,0 +1,22 @@
+SFR-NET-034:
+  title: "Mark the frames of a released port and require the mark at the gate"
+  kind: "functional"
+  usecase_step_ref: "USC-004: alt-1, step 4"
+
+  statement: "The system shall set a port mark on every frame that the ingress accept rules of a released per-port table accept, and let the gate accept an ingress frame only when its source MAC is in released and the mark is set, clearing the mark when it accepts."
+
+  condition: "When the port of a container is released (SFR-NET-010) and when the gate is installed or verified (SFR-NET-025)."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must use the mark bit 0x10000000 (bit 28), and keep every other mark bit as it was: set with `meta mark set meta mark or 0x10000000`, clear with `meta mark and 0xefffffff`."
+    - "Must have both ingress accept rules of the per-port table (SFR-NET-024) set the mark in the same atomic nft -f as the release; the closed port table, the egress rules of the port table and the gate egress rule carry no mark rule."
+    - "Must have the ingress rule of the gate read `ether saddr @released meta mark and 0x10000000 == 0x10000000 meta mark set meta mark and 0xefffffff accept`, so that the mark never reaches host routing or iptables."
+    - "Must read the mark rules back by their tokens (`meta mark set`, `0x10000000`, `0xefffffff`), not by the exact nft list text."
+    - "Must treat a gate without the mark condition, or a released port table whose accept rules do not set the mark, as a mismatch: `arm` refuses such a network, `check-gate` reports the controls agents-net gate and accept rules as mismatch, and the network must be recreated (remove_agent_net, then create_agent_net)."
+
+  post_conditions:
+    - "A frame passes the gate only from a port that is released and whose own table accepted it; a frame of a restarted container, whose new veth has no port table and so sets no mark, is dropped even when its MAC is still in released."
+    - "Open: the survival of the mark from the netdev ingress of the veth to the netdev ingress of the bridge was observed in an isolated namespace on 6.6.87.2-microsoft-standard-WSL2 with nftables 1.0.9; it is not yet verified on a live agent-host."

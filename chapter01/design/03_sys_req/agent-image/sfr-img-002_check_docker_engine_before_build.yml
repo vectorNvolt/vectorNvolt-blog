@@ -1,0 +1,22 @@
+SFR-IMG-002:
+  title: "Check the agent-host Docker engine is reachable before any build"
+  kind: "functional"
+  usecase_step_ref: "USC-003: step 2, err-3"
+
+  statement: "The system shall check that the agent-host Docker engine is reachable before any build and stop with nothing built when it is not."
+
+  condition: "When the invocation and the build inputs have been accepted and before any build starts."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-IMAGE Developer command-line entrypoint"
+
+  constraints:
+    - "Must check reachability of the agent-host Docker engine at IP-DOCKER-ENGINE before any build starts."
+    - "Must write a failure report to the error output at IP-CLI-CREATE-AGENT-IMAGE when the agent-host Docker engine is unreachable, including an unreachable agent-host."
+    - "Must return exit status 1 at IP-CLI-CREATE-AGENT-IMAGE when the agent-host Docker engine is unreachable."
+    - "Must show no build started when the agent-host Docker engine is unreachable."
+
+  post_conditions:
+    - "Nothing has been built when the engine was unreachable."
+    - "When the engine was reachable, the run continues with the check for an existing image."

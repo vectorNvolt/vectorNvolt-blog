@@ -1,0 +1,17 @@
+SSR-AGE-005:
+  title: "Accept only data from the caller"
+  kind: "structural"
+  usecase_step_ref: "USC-005: steps 1, 2"
+
+  statement: "The system shall accept from the caller only data and never an image, mount, flag or setting of the container."
+
+  condition: "For every invocation of the execution tool."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-EXECUTION-CONTAINER Execution container interface"
+
+  constraints:
+    - "Must show no argument at IP-EXEC-TOOL-CLI that sets an image, a mount, a container flag, a capability or a network."
+    - "Must take image, limits and environment from the profile selected by name, and ceilings and the kind model from the tool."
+    - "Must offer agent-graph the same interface at IP-EXECUTION-CONTAINER as the agent, with no additional privilege."

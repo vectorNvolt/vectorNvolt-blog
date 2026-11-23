@@ -1,0 +1,21 @@
+SFR-AGG-032:
+  title: "Report the outcome of the run"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 14 (exception err-3; err-16 at any step, no S8 report)"
+
+  statement: "The system shall report the outcome of every run with its exit state and exit status."
+
+  condition: "When the run ends by completion or by the developer's quit (static state S8 report). A usage error (err-17, step 1) is not reported here: it is a stderr usage error with exit status 1 handled by SFR-AGG-001, and no S8 report is written."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must write the run summary to the console at IP-CLI-AGENT-GRAPH-RUN and to .output/<runID>/report.md, including any open error, the resolution transcript and drift notices."
+    - "Must return exit status 0 for COMPLETED, 1 for NOT_STARTED, 2 for BUILD_FAILED, CONTEXT_OVER_BUDGET, NODE_FAILED, BUDGET_EXCEEDED, LLM_UNAVAILABLE and OUTPUT_INVALID, and 3 for INTENT_REJECTED, PROCESS_INVALID and INPUT_INVALID; exit state SUSPENDED (err-16, SFR-AGG-036) has no exit code defined (open in USS-008)."
+    - "Must keep failed outputs and the checkpoint; there is no rollback."
+
+  post_conditions:
+    - "The exit state names the cause."
+    - "Failed runs remain inspectable and resumable."

@@ -1,0 +1,21 @@
+SFR-AGE-008:
+  title: "Ensure the profile image is loaded or stop"
+  kind: "functional"
+  usecase_step_ref: "USC-005: step 5 (exception exc-7)"
+
+  statement: "The system shall load the profile's image from the operator-supplied tarball when it is absent, and stop when it cannot."
+
+  condition: "When the engine does not hold the image of the selected profile, or its tarball does not match the profile."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must load the tarball only when an inspect of the image id at IP-INCONTAINER-ENGINE fails, and inspect again afterwards; the data root is memory-backed, so the images are loaded again after every restart of the agent container."
+    - "Must exit with status 125, cause `setup`, when the tarball is missing, not loadable, its image id differs from the profile, or the inspect after the load fails."
+    - "Must never pull or build an image, which SSR-AGE-006 holds."
+
+  post_conditions:
+    - "The image of the profile is present before a container is created, or no container was created."
+    - "The tarball and the profile are unchanged."

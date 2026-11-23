@@ -1,0 +1,15 @@
+SSR-AGG-017:
+  title: "Hold the staged skills of a node to the skill limit and the exclusions"
+  kind: "structural"
+  usecase_step_ref: "USC-008: step 9, postconditions"
+
+  statement: "The system shall stage for every cognitive node no more skills than the skill limit and no excluded skill."
+
+  condition: "For every cognitive node, from its compose phase to its done status."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show that the number of skills staged in .claude/skills/ never exceeds max_skills (the step's value, else runtime.max_skills, else 3), checked in the node context record."
+    - "Must show that no skill named in exclude_skills is staged."

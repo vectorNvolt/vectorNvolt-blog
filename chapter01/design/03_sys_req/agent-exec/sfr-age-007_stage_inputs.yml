@@ -1,0 +1,21 @@
+SFR-AGE-007:
+  title: "Stage the inputs of an execution"
+  kind: "functional"
+  usecase_step_ref: "USC-005: step 4 (alternative alt-5)"
+
+  statement: "The system shall make the declared inputs of an execution available read-only without adding a mount."
+
+  condition: "When the caller has supplied inputs that the profile accepts."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must use a path under the source or mounted build folder in place, and copy every other input into the execution's own input folder, under its name or under name and base name for a multiple input."
+    - "Must expand the input placeholder in the command to the staged path, the list of staged paths or the in-place path."
+    - "Must record name, source, path and sha256 of every input in `meta.json`."
+    - "Must resolve every input path without following a symbolic link out of the workspace, which SSR-AGE-013 holds."
+
+  post_conditions:
+    - "No input was staged outside the execution folder and no mount was added by staging."
+    - "Every input is listed in `meta.json` with its hash."

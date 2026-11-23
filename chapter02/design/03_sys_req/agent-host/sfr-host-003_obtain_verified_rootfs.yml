@@ -1,0 +1,10 @@
+SFR-HOST-003:
+  title: "WITHDRAWN 2026-11-22: Obtain a signature-anchored, integrity-verified Ubuntu 26.04.1 LTS (resolute) WSL base filesystem"
+  kind: "functional"
+  status: "withdrawn"
+  withdrawn: "withdrawn 2026-11-22: WSL2 path removed"
+  usecase_step_ref: "USC-001: withdrawn (WSL removed; exception err-2 withdrawn)"
+  # No rootfs is downloaded or imported: the base system is the stock Ubuntu 26.04 cloud image booted by Lima or
+  # Multipass (foundation contract item 1, vm/foundation.sh). The tool has no network access of its own beyond
+  # what the dependency installation (SFR-HOST-008) needs. The env vars AGENT_HOST_ROOTFS_URL,
+  # AGENT_HOST_ROOTFS_SHA256SUMS_URL and AGENT_HOST_DOWNLOAD_* no longer exist.

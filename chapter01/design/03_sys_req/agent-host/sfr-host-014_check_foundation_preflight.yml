@@ -1,0 +1,25 @@
+SFR-HOST-014:
+  title: "Check the foundation VM before anything is changed"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 1 (exception err-11)"
+  # Added 2026-11-22. Replaces the WSL2 prechecks of SFR-HOST-002 and SFR-HOST-004 (withdrawn).
+  # Implemented by packages/agent-host/internal/steps/s01_preflight_foundation.go.
+
+  statement: "The system shall refuse to run unless it runs natively on Linux, as root, on a machine that carries the foundation marker /etc/agent-foundation with the line FOUNDATION_VERSION=1, and shall change nothing before this check has passed."
+
+  condition: "When the creation sequence has started with an empty argument list (SFR-HOST-001)."
+
+  interface_points:
+    - "IP-FOUNDATION-MARKER Foundation marker file of the VM"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must check that the operating system of the running binary is Linux; otherwise stop and report that the tool must run on the Linux foundation VM, built natively inside it."
+    - "Must check that the effective user ID is 0; otherwise stop and report that the tool must run as root (sudo)."
+    - "Must read /etc/agent-foundation through IP-FOUNDATION-MARKER and require a line equal to FOUNDATION_VERSION=1 (surrounding whitespace ignored); a missing or unreadable file, or a file without that line (unknown foundation version), stops the run."
+    - "Must, on every refusal, name vm/check-foundation.sh in the message as the script that shows what the foundation lacks, write the message to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 1 with the state NOT_CREATED."
+    - "Must run no other command and change nothing on the VM in this step."
+
+  post_conditions:
+    - "Nothing has been created or changed when the check failed."
+    - "The creation sequence continues only on a Linux machine, as root, with the foundation marker FOUNDATION_VERSION=1 present."

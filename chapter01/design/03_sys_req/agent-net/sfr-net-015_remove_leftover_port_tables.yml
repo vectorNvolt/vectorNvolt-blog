@@ -1,0 +1,21 @@
+SFR-NET-015:
+  title: "Remove leftover per-port tables"
+  kind: "functional"
+  usecase_step_ref: "USC-007: step 6, alt-2, err-5"
+
+  statement: "The system shall delete every leftover `as_port_*` netdev table once the agent containers attached to the network have been removed."
+
+  condition: "When all agent containers attached to the network have been removed."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must delete the tables by name (`nft delete table netdev as_port_<id>`) and leave every other nftables table untouched."
+    - "Must read the list of `as_port_*` tables fresh (the disarm of each container has already deleted most) and delete the leftover ones in USC-007 step 6."
+    - "Must delete them only after the agent containers attached to agents-net have been disarmed and removed (SFR-NET-014); a table of a container that no longer exists is deleted here by name."
+    - "Must tolerate a table that is already absent."
+    - "Must, when a table deletion fails, report what failed on stderr and return `exit_code: 2`, state `REMOVE_INCOMPLETE`, without rollback; the remaining removal steps still run and the removal can be run again."
+
+  post_conditions:
+    - "No `as_port_*` netdev table exists."

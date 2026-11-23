@@ -1,0 +1,25 @@
+SFR-AGC-008:
+  title: "Fail closed, disarm and remove only the own container when arming fails"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 6 (exception err-8)"
+
+  statement: "The system shall keep the container paused and unreachable, disarm its host-side controls and then remove only the container it created when network arming or verification fails."
+
+  condition: "When the arming refusal (gate missing), a host-side control, its verification or its read-back fails."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must keep the container paused, and without network reachability from the failure at IP-AGENT-NET until it is removed, so that no partial arming exposes it, which SSR-AGC-002 holds."
+    - "Must call the disarm of IP-AGENT-NET for the container and obtain exit status 0 before the removal request at IP-DOCKER-ENGINE, which SSR-AGC-016 holds for every removal."
+    - "Must, when the disarm exits non-zero or cannot be run, remove nothing, leave the container paused behind its controls, name it in the report and still return exit status 2. The guard keeps the same rule on its error path (SFR-AGC-026): it removes a container only after a disarm that exited 0 and otherwise leaves it in place."
+    - "Must remove, through IP-DOCKER-ENGINE, only the container this run created, and only after the disarm succeeded."
+    - "Must keep the workspace folder and every resource this run did not create, including the shared agent network, the agent image and any other agent's container."
+    - "Must write the arming failure to the error output at IP-CLI-CREATE-AGENT-CONTAINER and return exit status 2, which SFR-AGC-011 defines."
+
+  post_conditions:
+    - "The container has not become reachable, no container was removed while its host-side controls were still applied, and no resource this run did not create has been removed or changed."
+    - "The workspace folder remains, and the developer can run the request again after the cause is corrected."

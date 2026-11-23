@@ -1,0 +1,22 @@
+SFR-AGG-017:
+  title: "Compose the working set of a cognitive node"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 9"
+
+  statement: "The system shall give each cognitive node a working set that is composed from the pools and the run state before its session opens."
+
+  condition: "When the dynamic state machine reaches a cognitive node."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must write system.md from L0 (all snippets with layer agent, sorted by id) and L1 (runtime.snippets in declaration order), byte-identical for every cognitive node of the run (SSR-AGG-011), and CLAUDE.md from L2 (step snippets, then auto snippets, then the generated step contract, SFR-AGG-039) and L3 (run facts in the order they occurred), each from pool snippets and generated parts only."
+    - "Must stage the declared skills always, remove the excluded ones, add the best-ranked remaining pool skills up to max_skills (step, else runtime.max_skills, else 3), and make no other skill visible to the node (SFR-AGG-018)."
+    - "Must fill the context pack in a fixed order up to the node budget (goal and schema, read items, handoff notes, run facts), list left-out items by path and summarize rather than truncate; the engine takes no part."
+    - "Must record layers, snippet identifiers, staged and excluded skills, items with token counts, omissions with reasons and hashes in the node's context record at IP-AGENT-RUN-WORKSPACE."
+    - "Must, when the mandatory context (goal, output schema, declared reads) exceeds the node budget after summarizing, not start the session, report NODE_FAILED(node, context, reason) (E4 does not retry) and escalate at once through SFR-AGG-028; the exit state is CONTEXT_OVER_BUDGET."
+
+  post_conditions:
+    - "The node's working set holds only pool snippets, the step contract and the run facts."
+    - "No session was started for a node whose mandatory context is over budget."

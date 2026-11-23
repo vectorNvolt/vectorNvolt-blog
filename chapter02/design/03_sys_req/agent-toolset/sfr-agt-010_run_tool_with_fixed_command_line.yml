@@ -1,0 +1,23 @@
+SFR-AGT-010:
+  title: "Run an engineering tool with the profile's fixed command line"
+  kind: "functional"
+  usecase_step_ref: "USC-009: step 6"
+
+  statement: "The system shall run an accepted tool run in a fresh ephemeral container with exactly the command line of its profile."
+
+  condition: "When a tool-run call has passed validation and the input policy."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must expand only the input and output placeholders of the profile's fixed argument list and append nothing."
+    - "Must create the container at IP-INCONTAINER-ENGINE with the tool-kind mount model, which SSR-AGT-006 holds, and with the fixed settings and engine policy of every execution (SSR-AGE-001, SSR-AGE-007)."
+    - "Must write `meta.json`, `stdout.log`, `stderr.log`, `result.json` and the products under `out/` into the execution folder at IP-AGENT-RUN-WORKSPACE and remove the container."
+    - "Must exit with the command's own exit code, cause `ok` or `exit`, at IP-EXEC-TOOL-CLI."
+
+  post_conditions:
+    - "The container ran the profile's command line unchanged and was removed; it saw no protected zone, credential or engine socket."
+    - "The products are in `.output/exec/<execId>/out/` for the agent to read."

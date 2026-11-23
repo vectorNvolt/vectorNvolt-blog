@@ -1,0 +1,2 @@
+# Stub: sandbox image built by src/package_template/services/container.py.
+# Fill in base image, pinned packages and entrypoint when the package needs one.

@@ -1,0 +1,23 @@
+SFR-NET-018:
+  title: "Verify the removal and report it"
+  kind: "functional"
+  usecase_step_ref: "USC-007: steps 10, 11, alt-2, err-7"
+
+  statement: "The system shall verify by reading back that nothing of the agent network setup is left, and only then report success."
+
+  condition: "After the network has been removed."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine"
+    - "IP-AGENT-NET Agent network control"
+    - "IP-CLI-REMOVE-AGENT-NET Network removal entrypoint"
+
+  constraints:
+    - "Must read back that the network is absent, no `as_port_*` netdev table exists, no `agents_gate` netdev table exists and no iptables rule with an `agent-net:` comment exists in `DOCKER-USER` and `INPUT`. The elements of the set `released` are read back through the absence of the `agents_gate` table, and the neighbour and forwarding entries of the agent ports disappear with the bridge of the network; neither is listed separately. The per-container read-back of those entries is part of the disarm (SFR-NET-012, SFR-NET-027)."
+    - "Must report what is left on stderr with `exit_code: 2`, state `REMOVE_INCOMPLETE`, when any check fails, including every failure recorded by the removal steps before the read-back (leftover tables, rules and network), and write no success text for the network."
+    - "Must report, on stdout while the containers are removed (before the read-back), one line per removed container saying that its workspace is kept (`container <name> removed from agents-net (its workspace is kept)`), or that it `was already gone`."
+    - "Must report success, only after the read-back found nothing left, as one final line on stdout with `exit_code: 0` that gives the number of containers removed by this run (not their names; a container already gone is not counted), that their workspaces are kept, and that the `as_port_*` tables, the `agents_gate` table and the `agent-net:` rules are gone."
+    - "Must be safe to re-run: a repeated run finishes whatever a failed run left and reports nothing to remove once nothing is left."
+
+  post_conditions:
+    - "The Developer knows the setup is fully removed, or what is left."

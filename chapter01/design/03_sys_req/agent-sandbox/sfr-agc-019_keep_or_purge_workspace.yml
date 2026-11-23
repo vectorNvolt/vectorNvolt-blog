@@ -1,0 +1,22 @@
+SFR-AGC-019:
+  title: "Keep the workspace and the agent state by default and purge them on request"
+  kind: "functional"
+  usecase_step_ref: "USC-006: step 7, err-7, err-11"
+
+  statement: "The system shall keep the agent's workspace folder and report its path, or delete it when the developer passed --purge-workspace, and shall keep the agent state directory /var/lib/agent-sandbox/<id> (Claude login and conversation history) and report its path, or delete it when the developer passed --purge."
+
+  condition: "After the container is verified absent, or found absent."
+
+  interface_points:
+    - "IP-AGENT-WORKSPACE-FS Per-agent workspace folder"
+    - "IP-CLI-REMOVE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must apply the limits of SSR-AGC-015 to every deletion."
+    - "Must report a refused or failed deletion at IP-CLI-REMOVE-AGENT-CONTAINER with exit state WORKSPACE_PURGE_FAILED and exit status 2."
+    - "Must delete the agent state directory only with --purge, exactly /var/lib/agent-sandbox/<id>, recursively, and refuse the deletion when it is a symbolic link or not a real directory directly under the real state root (the same guards as SSR-AGC-015); an absent directory is a note, not an error; the deletion also runs when no container exists and never before the container is verified absent."
+    - "Must report a refused or failed state deletion at IP-CLI-REMOVE-AGENT-CONTAINER with exit state STATE_PURGE_FAILED and exit status 2."
+
+  post_conditions:
+    - "The developer holds the path of a kept workspace or the confirmation of a purged one."
+    - "The developer holds the path of a kept agent state directory or the confirmation of a purged one."

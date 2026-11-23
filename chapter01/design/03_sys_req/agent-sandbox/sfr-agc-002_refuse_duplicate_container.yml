@@ -1,0 +1,21 @@
+SFR-AGC-002:
+  title: "Refuse a creation request for an agent that already has a container"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 2 (exception err-3)"
+
+  statement: "The system shall refuse a creation request when a container for the same agent identity already exists."
+
+  condition: "When a container named for the requested agent identity already exists."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must detect the existing container by querying IP-DOCKER-ENGINE for the identity-derived name, whatever state the existing container is in, before any workspace or container is created."
+    - "Must leave the existing container unchanged and must not reuse it, stop it or remove it; the name-keyed disarm before the creation (SFR-AGC-029) runs only after this refusal has passed, so it never touches the network state of an existing container."
+    - "Must write the collision to the error output at IP-CLI-CREATE-AGENT-CONTAINER and return exit status 1, which SFR-AGC-011 defines."
+
+  post_conditions:
+    - "The existing container has not been reused, modified, stopped or removed, and no second container exists for the agent identity."
+    - "The developer holds a report that names the existing container."

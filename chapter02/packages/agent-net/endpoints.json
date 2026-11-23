@@ -1,0 +1,6 @@
+{
+  "endpoints": [
+    "api.anthropic.com",
+    "platform.claude.com"
+  ]
+}

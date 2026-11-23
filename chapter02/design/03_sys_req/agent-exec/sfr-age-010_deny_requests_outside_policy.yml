@@ -1,0 +1,22 @@
+SFR-AGE-010:
+  title: "Deny engine requests outside the policy"
+  kind: "functional"
+  usecase_step_ref: "USC-005: step 6 (alternative alt-8, exception exc-8)"
+
+  statement: "The system shall deny every engine request that does not match the compiled-in policy, whoever sends it."
+
+  condition: "When the in-container engine receives a request on its socket."
+
+  interface_points:
+    - "IP-ENGINE-AUTHZ Engine authorization interface"
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+
+  constraints:
+    - "Must allow at IP-ENGINE-AUTHZ only the endpoints of the allowlist and deny exec, copy, build, pull, push, network and volume requests and every unparsable request."
+    - "Must allow a create only when the body satisfies every create invariant: user, privilege, capabilities, security options, network, namespaces, forbidden fields, runtime, limits, name, labels, auto-remove and mount sources that resolve without a symbolic link component; a create whose limits exceed a plugin ceiling that is lower than the profile's limits is denied."
+    - "Must deny a request from a direct client such as `docker run --privileged -v /:/host`, `-u 0`, `docker exec` or `docker cp` in the same way as one from the tool, with no container started."
+    - "Must return the denial to the tool as exit 125, cause `denied`, and remove a container that was already created."
+
+  post_conditions:
+    - "No container exists that violates an invariant."
+    - "A request that matches the policy is still allowed."

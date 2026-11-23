@@ -1,0 +1,10 @@
+SSR-HOST-001:
+  title: "WITHDRAWN 2026-11-22: Keep agent-host free of host drive access, host interoperation and host path"
+  kind: "structural"
+  status: "withdrawn"
+  withdrawn: "withdrawn 2026-11-22: WSL2 path removed"
+  usecase_step_ref: "USC-001: withdrawn (WSL removed)"
+  # The WSL2 checks (/mnt/c, drvfs, 9p, WSLInterop, powershell.exe, host PATH entries) are gone.
+  # The VM boundary replaces the distro boundary: the VM has no host mounts (Lima mounts: [], no shared
+  # folders under Multipass) and no host interop by construction (foundation contract item 7,
+  # vm/foundation.sh, checked by vm/check-foundation.sh, not by create_agent_host).

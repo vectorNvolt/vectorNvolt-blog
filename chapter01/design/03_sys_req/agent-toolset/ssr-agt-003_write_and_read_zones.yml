@@ -1,0 +1,19 @@
+SSR-AGT-003:
+  title: "Bound the agent's writes and reads to its zones"
+  kind: "structural"
+  usecase_step_ref: "USC-009: alternatives alt-1, alt-2, postconditions"
+
+  statement: "The system shall bound every write of the agent to its write zones and every read to its readable zones."
+
+  condition: "For every tool call of the agent, from the start of the session to its end."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-TOOL-GUARD-HOOK Tool-call guard hook"
+
+  constraints:
+    - "Must show writes at IP-AGENT-RUN-WORKSPACE only in `src/**`, `.output/**` except the parts SSR-AGT-004 protects, and, in a cognitive step, the step's work folder."
+    - "Must show `.process/`, `.input/`, `.tools/`, `.agent/`, `build/`, every workspace `.claude/` and the policy folder never written by the agent."
+    - "Must show the agent's login credentials file never read by the agent."
+    - "Must show a cognitive step reading only its bound inputs of `.input/`, which SSR-AGG-008 holds; the interactive session reads all of `.input/`."
+    - "Must show every zone decision taken on the real path, so a symlink cannot widen a zone."   # open: symlink handling of the built-in tools

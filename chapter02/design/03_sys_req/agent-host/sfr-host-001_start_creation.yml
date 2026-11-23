@@ -1,0 +1,22 @@
+SFR-HOST-001:
+  title: "Start agent-host creation from a single argument-less command"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 1"
+  # Changed 2026-11-22: the command now runs as root inside the Ubuntu 26.04 foundation VM (native Linux binary)
+  # and configures that VM as agent-host; it no longer creates a WSL2 distro from Windows.
+
+  statement: "The system shall begin configuring the foundation VM as agent-host on a single command invocation without requiring any argument."
+
+  condition: "When the developer invokes the creation command inside the foundation VM."
+
+  interface_points:
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must start the configuration at IP-CLI-CREATE-AGENT-HOST when the command is invoked with an empty argument list."
+    - "Must, when the command is invoked with any argument, stop before any other step, write a usage message (usage: create_agent_host; takes no arguments) to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 1."
+    - "Must produce the complete agent-host setup from this one invocation, with no further developer action at IP-CLI-CREATE-AGENT-HOST."
+
+  post_conditions:
+    - "The configuration sequence has been started."
+    - "No argument has been demanded from the developer."

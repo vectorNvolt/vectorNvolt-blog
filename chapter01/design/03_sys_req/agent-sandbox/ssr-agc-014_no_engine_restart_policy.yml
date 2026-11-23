@@ -1,0 +1,17 @@
+SSR-AGC-014:
+  title: "Never let the engine relaunch the agent container; the guard removes a restarted one"
+  kind: "structural"
+  usecase_step_ref: "USC-002: steps 4, 9"
+
+  statement: "The system shall create every agent container with the engine restart policy set explicitly to no."
+
+  condition: "For every agent container, from its creation until it is removed."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must request the restart policy no in the creation request, so that the engine never relaunches the container after a restart of the host, when the per-port `netdev` nftables table (`as_port_<id>`) and the other host-side controls are gone."
+    - "Must show the restart policy no on the container, inspected at IP-DOCKER-ENGINE and not from the creation request, because the engine policy was observed not to relaunch agent containers and so gives false assurance."
+    - "Must show a container that was restarted (docker restart or docker start of a stopped container, whatever the cause) removed by the guard, not re-armed and not relaunched: the guard finds its gate closed or its per-port controls gone, and removes it after a successful disarm (SFR-AGC-025, SFR-AGC-026). A new container is created by the creation tool, which arms it before the release (SFR-AGC-007)."
+    - "Must leave blocking a deliberate docker restart out of scope: it needs access to the Docker socket, which is root-equivalent, and root can rewrite the egress rules anyway."

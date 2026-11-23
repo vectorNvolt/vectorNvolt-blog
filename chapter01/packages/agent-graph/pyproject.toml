@@ -1,0 +1,36 @@
+[project]
+name = "agent-graph"
+version = "0.0.0"
+description = "Runs a developer-defined process as a static state machine (S1-S8) around a dynamic LangGraph machine"
+requires-python = ">=3.11"
+# Only what the agent image provides (agent-image requirements.lock), now including rich and its
+# renderers; still no jsonschema.
+dependencies = [
+    "langgraph==1.2.18",
+    "pyyaml==6.0.3",
+    # The renderer feeds sandbox-controlled text to these three: pinned, so what the post probed is
+    # what runs. requirements.lock holds the full tree (incl. mdurl).
+    "rich==15.0.0",
+    "markdown-it-py==4.2.0",
+    "Pygments==2.21.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+agent_graph = "agent_graph.main:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+agent_graph = ["schemas/*.yml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]

@@ -1,0 +1,21 @@
+SFR-AGT-004:
+  title: "Deny a command that is not on the allowlist"
+  kind: "functional"
+  usecase_step_ref: "USC-009: step 3 (exception exc-3)"
+
+  statement: "The system shall deny a command whose program is not on the command allowlist of the policy bundle."
+
+  condition: "When the first word of a command names a program outside the allowlist, e.g. a shell, an interpreter, an engine client, a stream editor, a network client, `env` or `xargs`, or an engineering tool started directly."
+
+  interface_points:
+    - "IP-TOOL-GUARD-HOOK Tool-call guard hook"
+    - "IP-CLAUDE-POLICY-BUNDLE Agent policy bundle"
+
+  constraints:
+    - "Must read the allowlist only from the policy bundle at IP-CLAUDE-POLICY-BUNDLE: `ls`, `head`, `tail`, `wc`, `diff`, `rg`, `find`, `mkdir`, `mv`, `cp`, `touch`, `rm` and the execution tool."   # open: final command allowlist
+    - "Must resolve an allowed program to its absolute path in a root-owned directory and deny it otherwise."
+    - "Must deny at IP-TOOL-GUARD-HOOK with exit 2 and the reason."
+
+  post_conditions:
+    - "No program outside the allowlist was started by the agent; an interpreter in the agent image could not be started."
+    - "Engineering tools remain available through the execution tool, SFR-AGT-008."

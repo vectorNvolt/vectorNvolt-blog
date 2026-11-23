@@ -1,0 +1,19 @@
+SSR-AGT-007:
+  title: "Keep containment independent of the tool-call guard"
+  kind: "structural"
+  usecase_step_ref: "USC-009: exceptions exc-7, exc-12"
+
+  statement: "The system shall hold the agent's containment by the engine policy and the platform isolation, so a bypassed tool-call guard gives the agent no more than a shell as uid 1001."
+
+  condition: "For every agent container, from its creation until it is removed."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+    - "IP-ENGINE-AUTHZ Engine authorization interface"
+    - "IP-CLAUDE-POLICY-BUNDLE Agent policy bundle"
+
+  constraints:
+    - "Must show, with the guard bypassed, every privileged or out-of-policy container request at IP-INCONTAINER-ENGINE denied by the engine policy at IP-ENGINE-AUTHZ, which SSR-AGE-007 holds."
+    - "Must show, with the guard bypassed, the policy bundle unchanged, since it is a read-only bind, which SSR-AGT-002 holds."
+    - "Must show the agent container under the isolated runtime and the host network controls, which SSR-AGC-001 and SSR-AGC-002 hold."
+    - "Residual risk: with the guard bypassed the agent can change the workspace and read its login credentials."

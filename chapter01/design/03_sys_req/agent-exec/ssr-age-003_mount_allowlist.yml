@@ -1,0 +1,17 @@
+SSR-AGE-003:
+  title: "Mount only the allowlist of the kind into an execution container"
+  kind: "structural"
+  usecase_step_ref: "USC-005: steps 6, 8 (alternatives alt-1, alt-2)"
+
+  statement: "The system shall mount into an execution container only the workspace folders the kind allows, and hide everything else."
+
+  condition: "For every execution container, from creation until it is removed."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show on the inspected container the exact mounts: source, environment folders, the build folder if declared and the own `in/` read-only, the own `out/` writable; `build` also the build folder writable; `install` also the packages folder, the `dl/` folder and the target environment folder as its kind states."
+    - "Must show no mount of the input, process, tool or agent folders, other execution folders, the git folder, the logs, `meta.json`, `result.json`, credentials or the engine socket."
+    - "Must show every mount source resolving without a symbolic link component, and no mount added by staging or by the caller."

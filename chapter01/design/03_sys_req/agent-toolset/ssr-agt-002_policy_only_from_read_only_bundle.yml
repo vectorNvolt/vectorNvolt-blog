@@ -1,0 +1,19 @@
+SSR-AGT-002:
+  title: "Take the policy only from the read-only bundle"
+  kind: "structural"
+  usecase_step_ref: "USC-009: steps 2, 3 (exception exc-11, alternative alt-7)"
+
+  statement: "The system shall take every hook, permission rule, tool limit and command rule of the agent only from a policy bundle that the agent cannot change."
+
+  condition: "For every agent container, from its creation until it is removed."
+
+  interface_points:
+    - "IP-CLAUDE-POLICY-BUNDLE Agent policy bundle"
+    - "IP-TOOL-GUARD-HOOK Tool-call guard hook"
+
+  constraints:
+    - "Must show the bundle at IP-CLAUDE-POLICY-BUNDLE as a read-only bind of a per-agent root-owned host folder, outside the image and the workspace, so a write as uid 1001 fails."   # open: read-only bind against in-sandbox uid 0
+    - "Must show the guard started by absolute path from the bundle at IP-TOOL-GUARD-HOOK and reading its rules only from the bundle."
+    - "Must show no hook or permission from the workspace, the user settings or a session flag widening the managed policy; only managed hooks run."   # open: key names and precedence with the pinned version
+    - "Must show a running agent keeping the policy it was created with; an update takes effect on recreation, which SFR-AGT-017 checks."
+    - "Must show the bundle never mounted into an ephemeral container."

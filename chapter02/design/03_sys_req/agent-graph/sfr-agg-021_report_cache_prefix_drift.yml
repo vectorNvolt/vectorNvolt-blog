@@ -1,0 +1,20 @@
+SFR-AGG-021:
+  title: "Report a prompt cache prefix drift"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 10 (alternative alt-8)"
+
+  statement: "The system shall report a cache prefix drift without ending the run."
+
+  condition: "When, from the second cognitive node on, the cache-read tokens of a node's first turn are below 90 percent of the first-turn cache read of the second cognitive node."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must print a CACHE_PREFIX_DRIFT notice through the gateway at IP-CLI-AGENT-GRAPH-RUN and add a line to report.md (SFR-AGG-032)."
+    - "Must not treat the drift as an error and must not enter resolution."
+
+  post_conditions:
+    - "The run continued."
+    - "The drift is visible in the console and the report."

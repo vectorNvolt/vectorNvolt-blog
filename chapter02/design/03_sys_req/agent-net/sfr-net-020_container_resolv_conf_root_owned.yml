@@ -1,0 +1,23 @@
+SFR-NET-020:
+  title: "Define the container's /etc/resolv.conf as root-owned naming only the allowed resolvers and verify it"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 9 (exception err-12); mounted at USC-002 step 4 and checked at step 8 (SFR-AGC-024); USC-004: alt-1 (note)"
+
+  statement: "The system shall ensure that the agent container's /etc/resolv.conf, a read-only mount of the host file /etc/agent-sandbox/resolv.conf made by the container creation tool (SFR-AGC-024), is owned by root, not writable by the agent user and names only the allowed DNS resolvers (1.1.1.1 and 9.9.9.9), and shall verify it on the running container."
+
+  condition: "When the container creation tool has mounted the container's /etc/resolv.conf and checked it after the release (SFR-AGC-024), and when the final state is verified (verification)."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Allocation: this requirement is implemented in agent-sandbox (container creation tool, steps s25 prepare the host file, s18 check inside the container and s19 verify, requirement SFR-AGC-024, final verification SFR-AGC-009). create_agent_net implements nothing of it and writes no resolver file; this entry records the dependency of the network design (DNS egress rule (a) of SFR-NET-009) on that file."
+    - "Must have /etc/resolv.conf as a file owned by root:root with mode 644 whose only content is the two lines `nameserver 1.1.1.1` then `nameserver 9.9.9.9` (the DNS resolvers that the DNS egress rule (a) of SFR-NET-009 allows); it is the host file /etc/agent-sandbox/resolv.conf (root:root, 644) bind-mounted read-only by the container creation tool (SFR-AGC-024) and checked inside the container after the release and the unpause, not written by the image, the container init or an exec, and not by create_agent_net."
+    - "Must not make the file writable by the agent user (uid 1001)."
+    - "Must, at the final verification (SFR-AGC-009), read the file in the running container through IP-DOCKER-ENGINE with an exec as the explicit agent user (for example `docker exec -u 1001 <container> cat /etc/resolv.conf`, plus owner and mode) and treat a missing, differing, not root:root, not mode 644 or agent-writable file as a verification failure that contains the container."
+    - "Must not use the container engine's embedded resolver, which the isolated runtime does not support."
+    - "Because the file is a read-only bind mount, the engine generates no file of its own (embedded DNS 127.0.0.11) and nothing in the container can change it. Open (to confirm on a real run, see SFR-AGC-024): that the isolated runtime accepts the read-only bind mount over /etc/resolv.conf and shows the expected owner and mode."
+
+  post_conditions:
+    - "A container is reported successful only when its /etc/resolv.conf, read in the running container, is root:root mode 644, not agent-writable and names exactly `nameserver 1.1.1.1` and `nameserver 9.9.9.9`."
+    - "The agent cannot change the resolver it uses for DNS inside the container."

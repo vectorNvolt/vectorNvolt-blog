@@ -1,0 +1,17 @@
+SSR-AGG-007:
+  title: "Hold the writes of the runtime to the workspace and the Claude login folder"
+  kind: "structural"
+  usecase_step_ref: "USC-008: postconditions"
+
+  statement: "The system shall write only inside the agent workspace and the agent's Claude login folder."
+
+  condition: "For every run, from the start to the exit."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+
+  constraints:
+    - "Must show that the runtime, running as uid 1001 (the agent user), writes nothing outside /workspace and /home/agent/.claude."
+    - "Must show that .process/, .input/ and identity/ are written only in resolution after the developer's approval of each change (SFR-AGG-033); read-only enforcement is open in USS-008."
+    - "Must show that each node's current directory is its own node working set active/ (later nodes/<nodeID>/), never the workspace root."

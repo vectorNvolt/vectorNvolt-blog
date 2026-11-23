@@ -1,0 +1,21 @@
+SFR-AGE-004:
+  title: "Stop with nothing started when the workspace is not ready"
+  kind: "functional"
+  usecase_step_ref: "USC-005: steps 3, 4 (exceptions exc-4, exc-5, exc-6)"
+
+  statement: "The system shall stop with nothing started when the workspace cannot supply what the execution needs."
+
+  condition: "When the execution folder cannot be created, a staging copy fails or exceeds the size cap (value TBD), a folder the host operator should have created (build, environment folder, packages folder) is missing, or the build folder is missing or empty for a code profile that requires a build."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+
+  constraints:
+    - "Must exit with status 125, cause `setup`, with a diagnostic at IP-EXEC-TOOL-CLI that names the failing folder or file."
+    - "Must never create the build, environment or packages folders itself."
+    - "Must keep the execution folder and write `result.json` into it when a staging copy fails (it exists from step 3); a missing folder or a failure to create the execution folder is found before or while creating it, so no execution folder exists and nothing is written."
+
+  post_conditions:
+    - "No container was created or started."
+    - "The workspace folders are unchanged except for the execution folder and its staged copies."

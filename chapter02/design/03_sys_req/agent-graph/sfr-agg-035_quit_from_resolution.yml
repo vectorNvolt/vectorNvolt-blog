@@ -1,0 +1,19 @@
+SFR-AGG-035:
+  title: "Keep the run on a quit from resolution"
+  kind: "functional"
+  usecase_step_ref: "USC-008: alternative alt-6"
+
+  statement: "The system shall end the run on the developer's quit only with the open error recorded and the run resumable."
+
+  condition: "When the developer quits during resolution."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must record the open error and the resolution transcript in report.md, keep the checkpoint so that the resume option re-enters resolution, and report the exit state and exit status of the error that led to resolution (SFR-AGG-032)."
+
+  post_conditions:
+    - "The run can be resumed."
+    - "No error ended the run without the developer."

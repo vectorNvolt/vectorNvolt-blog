@@ -1,0 +1,450 @@
+# ==============================================================================
+# USC-008 — derived from USS-008 (design/01_user_story/uss-008_create_agentic_graph_4_process.md, draft 2)
+# Template: tmpl_usecase_v2.yml
+# Interaction points and channels are defined in
+# design/00_system_boundary/interaction_points.yml. The USS-008 IPs and channels
+# listed there (section "USS-008 — agent_graph run"):
+#   IP-CLI-AGENT-GRAPH-RUN  (CHAN-SHELL-CONSOLE, CHAN-GATEWAY-DIALOG)
+#   IP-AGENT-RUN-WORKSPACE  (CHAN-FS-RUN-WORKSPACE)
+#   IP-CLAUDE-CLI           (CHAN-CLAUDE-STREAM-JSON)
+#   IP-EXECUTION-CONTAINER  (CHAN-DOCKER-EXEC; USS-005, only for `isolate: true`)
+# IP-DOCKER-ENGINE (operation `agent_enter`) is reused from USS-002.
+# `# TBD` = undefined in USS-008 and its source docs.
+# `# proposed` = defined here, not in USS-008.
+# `# open` = open item of USS-008 that this use case cannot resolve.
+# `requirement_refs` are omitted: the SFR-AGG-* requirements are derived after
+# this use case is agreed (USS-008 open item).
+# Not an interaction point: the engine/dynamic contract (commands START,
+# RESTART, HIL_OK, HIL_NOK, ANSWER, RETRY, CANCEL, SUSPEND; statuses
+# NODE_STARTED, NODE_DONE, WAITING, NODE_FAILED, COMPLETED, SUSPENDED) runs
+# between two LangGraph graphs inside the one `agent_graph` process; it is
+# cited in the step actions, not as a boundary crossing.
+# Step mapping: steps 2-6 and 14 are the static states S1-S5 and S8; steps
+# 7-13 are the S6 execution engine (E1-E6) and the dynamic state machine; S7
+# resolution is alt-6 (entered from every exception flow except err-3, err-16, err-17 and err-19).
+# The tech notes (design/tech-notes-for-uss-008.md, draft 1) predate draft 2 of
+# the story; where they differ (`--process` argument, `NODE_READY`/`CONTEXT`,
+# `ABORT`, S1 as terminal owner, `agent-graph/v0`) the story is followed.
+# ==============================================================================
+
+USC-008:
+  title: "Run a YAML-defined process as a supervised agent graph"
+  summary: "The developer drops process definitions into `/workspace/.process` and input data into `/workspace/.input`, starts `agent_graph run` in the agent container through `enter_agent` and names the process in the chat; the agent agrees the process with the developer, validates process and input, compiles the process into a dynamic state machine, runs it under the supervision of the S6 execution engine with a per-node composed `CLAUDE.md`, skill set and context pack, talks to the developer only through the gateway, resolves every error together with the developer instead of ending the run, and delivers a checked output in `/workspace/.output/<runID>/`."
+
+  actors:
+    primary: "Developer"
+    supporting:
+      - "Agent container `agent-<agentID>` (gVisor sandbox, USS-002)"
+      - "Agent runtime `agent_graph` (LangGraph, `/opt/venv`, run as uid 1001)"
+      - "Static state machine (master: S1-S8)"
+      - "S6 execution engine (sub-state machine E1-E7)"
+      - "Dynamic state machine (slave: compiled from the process YAML)"
+      - "Gateway (runtime service that owns the terminal)"
+      - "Context composition (`compose_context`, compose phase of every cognitive node)"
+      - "Skill pool `/workspace/identity/.skills/` and snippet pool `/workspace/identity/.snippet/`"
+      - "Claude Code CLI (`claude -p`, agent's own subscription login)"
+      - "Execution container (USS-005, optional, `procedure` steps with `isolate: true`)"
+
+  interaction_points:
+    - ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+      direction: "inbound"
+      type: "cli_entrypoint"
+      boundary: "Developer shell in the `agent-host` VM -> `sudo enter_agent <agentID> -- agent_graph run` -> `docker exec -it -u 1001` -> `agent_graph` in `agent-<agentID>`"
+      transport: "POSIX process execution; interactive terminal (stdin/stdout/stderr relayed by `docker exec -it`)"
+      role: "primary entry (command invocation with optional `--resume <runID>`), the interactive dialog (owned by the gateway: S2 clarify, S4 input choice, S5 start confirmation, E3 review and questions, S7 resolution, notices) and exit (run summary, exit state, exit code)"
+    - ip_ref: "IP-DOCKER-ENGINE"
+      direction: "outbound"
+      type: "subprocess_cli"
+      boundary: "`enter_agent` (root in `agent-host`) -> Docker engine in `agent-host`"
+      transport: "Docker CLI (`docker exec`)"
+      role: "operation `agent_enter` (USS-002): checks the container state and its gate, then replaces itself with `docker exec -it -u 1001 agent-<agentID> agent_graph run [...]`"
+    - ip_ref: "IP-AGENT-RUN-WORKSPACE"
+      direction: "outbound"
+      type: "filesystem"
+      boundary: "`agent_graph` (uid 1001) -> `/workspace` in the container (bind mount of `Workspace-Agents/<agentID>`, USS-002)"
+      transport: "POSIX filesystem calls"
+      role: "reads process definitions (`.process/`), bound input (`.input/`), execution tools (`.tools/`), skill and snippet pools (`identity/`); writes run state (`.agent/<runID>/`), the summary cache (`.agent/cache/summaries/`) and the final output (`.output/<runID>/`); changes `.process/`, `.input/` or `identity/` only in S7 with the developer's approval of each change"
+    - ip_ref: "IP-CLAUDE-CLI"
+      direction: "outbound"
+      type: "subprocess_cli"
+      boundary: "`agent_graph` -> `claude` CLI in the image (USS-003) -> Claude endpoint (egress allowlist of USS-004)"
+      transport: "Child process; prompt and flags in, `stream-json` events on stdout"
+      role: "every Claude instance of the run: S2 clarify, S4 note questions, S7 resolution, and one session per cognitive node (`claude -p ... --resume <sessionID>` for later turns, answers and retries)"
+    - ip_ref: "IP-EXECUTION-CONTAINER"   # USS-005
+      direction: "outbound"
+      type: "subprocess_cli"
+      boundary: "`agent_graph` -> in-container Docker engine -> ephemeral execution container (USS-005)"
+      transport: "TBD (USS-005)"   # TBD
+      role: "runs the `run` command of a `procedure` step with `isolate: true`; the default (agent sandbox vs execution container) is open"   # open
+
+  preconditions:
+    - "USC-002 is complete: `agent-<agentID>` exists, is running and is released at the gate; the agent's Claude login is present in `/home/agent/.claude`"
+    - "The image provides `/opt/venv` with `langgraph` and the `agent_graph` package, and the `claude` CLI (USS-003)"
+    - "Egress to the Claude endpoint is allowed by the agent network (USS-004)"
+    - "`/workspace/.process/` holds at least one process file (`apiVersion: agent-graph/v1`) with a unique `id`; `/workspace/.input/` holds the input the selected process declares"
+    - "Every skill a process or step declares exists in `/workspace/identity/.skills/` with a valid `SKILL.md`; every declared snippet exists in `/workspace/identity/.snippet/` with valid front matter; the snippet pool has at least one `layer: agent` snippet"
+    - "Every execution profile a process requires (`runtime.profiles`) exists in `/workspace/.tools/` with a valid `profile.yml` and an `image.tar` whose digest matches the profile (USS-005)"
+    - "No other `agent_graph` run is active in this agent (one run per agent entity)"
+    - "User-level `~/.claude/CLAUDE.md` and `~/.claude/skills/` are empty, and no `CLAUDE.md` exists in `/workspace` or `/workspace/.agent`"   # proposed: stated as runtime behaviour in USS-008, who ensures it is open
+
+  main_flow:
+    - step: 1
+      actor: "Developer"
+      action:
+        - "Copies one or more process definitions into `/workspace/.process/` and their input data into `/workspace/.input/` (from the host workspace folder `Workspace-Agents/<agentID>`)"
+        - "Also copies the execution tools the process needs from the agent-host tool pool into `/workspace/.tools/<tool>/` (`profile.yml`, `image.tar`, `tool.json`), when not present"   # open: tool pool location on agent-host
+        - "Runs `sudo enter_agent <agentID> -- agent_graph run` in a shell inside the `agent-host` VM; `enter_agent` runs operation `agent_enter` and execs `agent_graph run` as uid 1001 in `agent-<agentID>`, attaching the terminal as the agent's only user channel"
+        - "No process is named on the command line; `--resume <runID>` is the only argument (alt-1)"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "command invocation `enter_agent <agentID> -- agent_graph run`, args: [optional --resume <runID>] — Developer -> Agent runtime"
+    - step: 2
+      actor: "Static state machine (S1 start)"
+      action: "Opens the gateway session (the gateway owns the terminal from here on, runs one conversation at a time, tags each message with its source state or node and logs the transcript) and checks the preconditions: no other active run in this agent, at least one process file in `/workspace/.process/`. On a new run it moves to S2."
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channel: "CHAN-FS-RUN-WORKSPACE"
+        object_flow: "active-run check, listing of `.process/*.yml` — Agent runtime -> /workspace, result back"
+    - step: 3
+      actor: "Static state machine (S2 clarify)"
+      action:
+        - "Lists the processes in `.process/` (`id`, `title`; files sharing an `id` are listed as not selectable)"
+        - "A Claude instance matches the developer's wording and stated intent against `id`, `title` and `description` and asks back through the gateway until exactly one process matches and the developer confirms it"
+        - "Sets `PROCESS_ID` (the `id` of the process file), creates `runID` = `<PROCESS_ID>-<yyyymmdd-hhmmss>` and the run folders `.agent/<runID>/` and `.output/<runID>/`, each with an exclusive create (fails if it exists; never reused for a new run). If either exists, appends `-<n>` (`n` = 2 to 9) to `runID` and tries again; none free is err-19. Reason: the agent may write `.output/` but not `.agent/` (USS-009, USC-009), and `agent-tool-guard` protects `.output/<name>/` only when `.agent/<name>/` exists, so a folder the agent made in advance must not become a run folder; the gateway transcript is written to `.agent/<runID>/gateway.jsonl`"
+        - "Leaves only on agreement (to S3) or on the developer's explicit quit (err-3)"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channels: ["CHAN-GATEWAY-DIALOG", "CHAN-CLAUDE-STREAM-JSON"]
+        object_flow: "process list (id, title, selectable), clarification questions and the developer's answers and confirmation; `PROCESS_ID`, `runID` — Developer <-> Gateway <-> S2 Claude instance (IP-CLAUDE-CLI)"
+    - step: 4
+      actor: "Static state machine (S3 parse_process)"
+      action:
+        - "Loads the selected YAML and validates it against `apiVersion` (`agent-graph/v1`), step types (`procedure`, `cognitive`, `human`) and references"
+        - "Checks the transitions: every step reachable from `transitions.entry` and reaching `END`; exactly one edge per declared outcome; `hil_ok` and `hil_nok` edges on every human step; every product in `reads` available on every path into the reader (optional reads ending in `?` excepted)"
+        - "Checks the declared skills and snippets against the pools and the `exclude_skills` rules (no unknown skill, no skill the same step declares)"
+        - "Checks the execution tools: every step `profile:` is listed in `runtime.profiles`; every profile in `runtime.profiles` exists in `/workspace/.tools/`, is reported valid (schema and ceilings) by `run_ephemeral_container list --json`, and has an `image.tar` whose digest matches the profile; images are not loaded (lazy at first use)"
+        - "Builds the skill and snippet index with the SHA-256 of every pool file and writes `.agent/<runID>/index.json`"
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channel: "CHAN-FS-RUN-WORKSPACE"
+        object_flow: "process file, `identity/.skills/*/SKILL.md`, `identity/.snippet/*.md` read; `index.json` written — Agent runtime <-> /workspace"
+    - step: 5
+      actor: "Static state machine (S4 bind_input)"
+      action:
+        - "Binds every `input.source[*]` with a `path` glob to files in `/workspace/.input/`; when a glob matches several candidate sets it asks the developer through the gateway which set to bind"
+        - "Asks the developer for every `note` source"
+        - "Checks presence, type and `schema` of each bound source, and the files of `input.output-template-ref[*]` and `input.ruleset[*]`"
+        - "Writes `.agent/<runID>/binding.json` (`PROCESS_ID`, bound input files); from here on only bound files are read"
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channels: ["CHAN-FS-RUN-WORKSPACE", "CHAN-GATEWAY-DIALOG"]
+        object_flow: "glob matches, candidate-set choice and `note` answers from the developer; `binding.json` written — Agent runtime <-> /workspace, Developer <-> Gateway"
+    - step: 6
+      actor: "Static state machine (S5 build_graph)"
+      action: "Compiles the dynamic state machine (`StateGraph`: one node per step, one conditional edge per `transitions.edges[*]`, no edge added) with `compose_context` compiled into every cognitive node; writes `.agent/<runID>/graph.json`; shows the outline (nodes, edges, human steps, budgets) through the gateway and waits until the developer confirms the start."
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "graph outline (nodes, edges, human steps, budgets), start confirmation — Gateway -> Developer, confirmation back"
+    - step: 7
+      actor: "S6 execution engine (E1 load)"
+      action: "Loads `graph.json`, the checkpoint and `overrides.json` and sends `START` to the dynamic state machine, which begins at `transitions.entry` with the bound input (own LangGraph checkpoint thread, driven by streaming with `Command(resume=...)`)."
+    - step: 8
+      actor: "Dynamic state machine, supervised by E2 supervise"
+      action:
+        - "Runs one node at a time and reports `NODE_STARTED(node, context_ref)`; after the node it reports `NODE_DONE(node, outcome, products, summary)` and follows the one edge whose `when` holds (`done`, `outcome == <value>`, `hil_ok`, `hil_nok`); the engine never selects a node"
+        - "A `procedure` node runs its `run` command in the agent sandbox (placeholders `{work}`, `{input.<Name>}`, `{<product>}`), no LLM involved (alt-5 for `isolate: true`)"
+        - "Before `NODE_DONE` the runtime checks that every product in `produces:` exists in `.agent/<runID>/work/<nodeID>/` and matches its schema"
+        - "E2 runs a timer per attempt (`timeout` of the step, else `runtime.timeout`) and counts steps and LLM calls against `runtime.budgets`; the full command/status history is written to `.agent/<runID>/`"
+        - "Success, failure and warning PRINTs are reported as `NODE_DONE`, `NODE_FAILED` and a notice; the gateway prints them"
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channel: "CHAN-FS-RUN-WORKSPACE"
+        object_flow: "bound input and read products in, products to `work/<nodeID>/`, command/status history and checkpoint to `.agent/<runID>/` — Agent runtime <-> /workspace"
+    - step: 9
+      actor: "Cognitive node (compose phase, `compose_context`)"
+      action:
+        - "Before its session opens, composes its working set in `.agent/<runID>/active/` from `graph.json`, `index.json`, the read products, `binding.json`, `run_facts.jsonl` and the summary cache; the engine takes no part"
+        - "Writes `system.md` (L0: all `layer: agent` snippets sorted by `id`; L1: `runtime.snippets` in declaration order), byte-identical for every cognitive node of the run"
+        - "Writes `CLAUDE.md` (L2: step `snippets`, then `auto: true` step snippets matching the node goal sorted by `id`, then the generated step contract; L3: run facts in the order they occurred)"
+        - "Stages the skills into `.claude/skills/`: declared skills (process and step) always, minus `exclude_skills`, plus the best-ranked pool skills up to `max_skills` (step, else `runtime.max_skills`, else 3)"
+        - "Writes `context.md` in fixed order (goal and output schema, `reads` items in listed order, inline or path plus cached summary, upstream handoff notes, run facts) up to the step `budget`; everything left out is listed by path"
+        - "Writes `context.json` (layers and snippet IDs, staged and excluded skills, context items with token counts, omissions and reasons, SHA-256 of `system.md`, `CLAUDE.md` and the launch command)"
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channel: "CHAN-FS-RUN-WORKSPACE"
+        object_flow: "pool files, products, run facts and cached summaries in; `system.md`, `CLAUDE.md`, `.claude/skills/`, `context.md`, `context.json` in `active/` out — Agent runtime <-> /workspace"
+    - step: 10
+      actor: "Cognitive node (session and check phases)"
+      action:
+        - "Starts a fresh session from `active/`: `claude -p \"<turn>\" --output-format stream-json --verbose --model <run model> --effort <run effort> --tools <runtime.tools> --allowedTools <step tools> --setting-sources project --strict-mcp-config --mcp-config <run mcp.json> --exclude-dynamic-system-prompt-sections --append-system-prompt-file system.md`; later turns, answers and retries continue it with `--resume <sessionID>` (session ID stored in the checkpoint)"
+        - "Records the usage of every turn (`input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `ephemeral_1h_input_tokens`, `ephemeral_5m_input_tokens`) and every compaction in `context.json`"
+        - "Checks its products against their schemas, returns its handoff note and reports `NODE_DONE`; `active/` is moved to `nodes/<nodeID>/` with the stream-json transcript `transcript.jsonl`"
+      interaction_point:
+        ip_ref: "IP-CLAUDE-CLI"
+        channel: "CHAN-CLAUDE-STREAM-JSON"
+        object_flow: "turn prompt and launch flags in, `stream-json` events (assistant messages, `message.usage`, result) out — Cognitive node -> Claude Code CLI, events back"
+    - step: 11
+      actor: "S6 execution engine (E3 hil)"
+      action: "When a human step reports `WAITING(node, HIL)`, presents the review brief (`instruction`) and the items in its `reads` through the gateway, discusses until the developer decides and sends `HIL_OK`; the dynamic state machine follows the `hil_ok` edge (alt-3 for `HIL_NOK`). The decision is appended to `run_facts.jsonl`."
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "review brief and reviewed items, developer discussion and decision (`HIL_OK`) — Gateway <-> Developer"
+    - step: 12
+      actor: "S6 execution engine (E5 output_check)"
+      action: "After `COMPLETED(output_ref)` (the dynamic state machine reached `END`), checks every `output.target[*]` in `.output/<runID>/` against its `checks` (e.g. `non_empty`, `max_words:800`) and its `template`."
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channel: "CHAN-FS-RUN-WORKSPACE"
+        object_flow: "output targets and templates read; check results — Agent runtime <-> /workspace"
+    - step: 13
+      actor: "S6 execution engine (E6 cleanup)"
+      action: "Applies `runtime.work_products` to `.agent/<runID>/work/`: `archive` (default) packs it into `.agent/<runID>/archive/work.tar.gz` and removes the folder, `delete` removes it, `keep` leaves it; `nodes/` with transcripts and manifests is always kept. Leaves S6 with `DONE`."
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channel: "CHAN-FS-RUN-WORKSPACE"
+        object_flow: "`work/` archived, deleted or kept — Agent runtime -> /workspace"
+    - step: 14
+      actor: "Static state machine (S8 report)"
+      action: "Writes the run summary to the terminal and to `.output/<runID>/report.md` (including any `CACHE_PREFIX_DRIFT` notices), prints the exit state `COMPLETED` and returns `exit_code: 0`."
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "run summary, `exit_state: COMPLETED`, `exit_code: 0` — Agent runtime -> Developer; `report.md` -> /workspace/.output/<runID>/"
+
+  alternative_flows:
+    - id: "alt-1"
+      at_step: 1
+      condition: "The developer runs `agent_graph run --resume <runID>` for a suspended or interrupted run"
+      behavior: "S1 opens the gateway session, loads the checkpoint of `.agent/<runID>/` and re-enters the saved state: S6 (E1 sends `RESTART(node)` at the node after the last completed one; completed `procedure` steps and the products of earlier nodes are not repeated; a cognitive node interrupted mid-session continues its stored session with `--resume <sessionID>`), or S7 if the run was suspended in resolution. Steps 2-6 are skipped."
+    - id: "alt-2"
+      at_step: 10
+      condition: "A cognitive node needs information from the developer and reports `WAITING(node, INPUT, question)`"
+      behavior: "E3 asks the question through the gateway and sends `ANSWER(payload)`; the node continues the same session with the answer as its next turn (`--resume <sessionID>`). The answer is appended to `run_facts.jsonl`. Then step 10 continues."
+    - id: "alt-3"
+      at_step: 11
+      condition: "The developer rejects the reviewed items"
+      behavior: "E3 sends `HIL_NOK(feedback)`; the feedback becomes the product `<step-name>_feedback` and is appended to `run_facts.jsonl`; the dynamic state machine follows the `hil_nok` edge back to the step the process names (a loop, bounded by `budgets.max_steps`), where it is an optional read (`<step-name>_feedback?`). The flow continues at step 8."
+    - id: "alt-4"
+      at_step: 8
+      condition: "A node sets an outcome with `SET_OUTCOME` (e.g. `rework`) whose edge leads back to an earlier step"
+      behavior: "The dynamic state machine follows the `outcome == <value>` edge; the earlier node runs again from its beginning (a new session for a cognitive node); the loop is bounded by `budgets.max_steps` (err-13 when reached)."
+    - id: "alt-5"
+      at_step: 8
+      condition: "A `procedure` step has `isolate: true`"
+      behavior: "The `run` command is executed in an ephemeral execution container (USS-005) instead of the agent sandbox; products are written to the node's work folder as usual."   # open: isolation default and the USS-005 interface
+    - id: "alt-6"
+      at_step: 2
+      condition: "Resolution: any exception flow of S1-S6 (except err-3, err-16, err-17 and err-19) or an escalation from E7 suspend (`ESCALATED(reason)`) has led to S7"
+      behavior:
+        - "A Claude instance explains the error through the gateway, proposes fixes and applies those the developer approves, including edits of `.process/`, `.input/` or `identity/` files; each change is recorded in `.agent/<runID>/resolution/<n>/` (transcript, applied changes, hashes)"
+        - "S7 compares hashes taken at entry and exit and re-enters: nothing or run overrides only (`overrides.json`) -> the failed state; process choice -> S2 with a new `runID` (old run kept); process text, skill pool or snippet pool -> S3, then S4, S5, and S6 restarts at the earliest node whose step, edges or `reads` changed; input files or binding -> S4, then S5, and S6 restarts at the earliest node reading a changed input; missing precondition fixed -> S1"
+        - "A restarted node starts from its beginning (`RESTART(node)` carries the resolution summary, which is appended to `run_facts.jsonl` and appears in the node's L3 layer); nodes before it keep their products"
+        - "If the developer quits instead, S8 records the open error and the resolution transcript in `report.md`, keeps the checkpoint (`--resume <runID>` re-enters S7) and ends with the exit state and exit code of the error that led to S7"
+    - id: "alt-7"
+      at_step: 8
+      condition: "A node attempt fails (`NODE_FAILED(node, kind, reason)` with kind `schema`, `tool` or `timeout`) and the node's failed attempts are below its `retry` threshold (step, else `runtime.retry`, default 2)"
+      behavior: "E4 failure_policy sends `RETRY(node)`: a cognitive node continues its session with the failure reason as next turn, a `procedure` node runs `run` again. A timed-out attempt was cancelled by E2 with `CANCEL(node)` first. The flow continues at step 8."
+    - id: "alt-8"
+      at_step: 10
+      condition: "From the second cognitive node on, a node's first-turn `cache_read_input_tokens` is below 90 % of P_run (the first-turn cache read of the second cognitive node)"
+      behavior: "The gateway prints a `CACHE_PREFIX_DRIFT` notice and S8 adds a line to `report.md`; not an error, the run continues."
+    - id: "alt-9"
+      at_step: 10
+      condition: "A node session nears the node budget"
+      behavior: "Claude Code compacts the session inside the same session (history not dropped); the compaction is recorded in `context.json`."
+
+  # Every exception flow except err-3, err-16, err-17 and err-19 leads to S7 resolution (alt-6).
+  # `exit_state` and the exit code apply only when the developer quits in S7.
+  # Exit codes: 0 COMPLETED; 1 NOT_STARTED; 2 runtime (BUILD_FAILED,
+  # CONTEXT_OVER_BUDGET, NODE_FAILED, BUDGET_EXCEEDED, LLM_UNAVAILABLE,
+  # OUTPUT_INVALID); 3 intent or validation (INTENT_REJECTED, PROCESS_INVALID,
+  # INPUT_INVALID). Rollback: none; outputs of failed runs are kept for inspection.
+  exception_flows:
+    - id: "err-1"
+      at_step: 2
+      condition: "No process file in `/workspace/.process/`"
+      system_reaction: "Enters S7 (alt-6), which offers to add a process file; re-entry at S1. On quit returns `exit_code: 1`."
+      exit_state: "NOT_STARTED"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "error explanation and proposed fix — Gateway -> Developer"
+    - id: "err-2"
+      at_step: 2
+      condition: "Another `agent_graph` run is active in this agent"
+      system_reaction: "Enters S7 (alt-6), which offers to wait or quit. On quit returns `exit_code: 1`."
+      exit_state: "NOT_STARTED"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "error naming the active run — Gateway -> Developer"
+    - id: "err-3"
+      at_step: 3
+      condition: "No process matches the developer's intent, or the developer quits in S2"
+      system_reaction: "No S7: goes straight to S8, which writes the report and returns `exit_code: 3`."
+      exit_state: "INTENT_REJECTED"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "run summary, `exit_state: INTENT_REJECTED`, `exit_code: 3` — Agent runtime -> Developer"
+    - id: "err-4"
+      at_step: 3
+      condition: "Two process files share an `id` (detected in S2 or S3)"
+      system_reaction: "The files are listed as not selectable; S7 (alt-6) offers to rename or remove one file. On quit returns `exit_code: 3`."
+      exit_state: "PROCESS_INVALID"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "error naming the files with the shared `id` — Gateway -> Developer"
+    - id: "err-5"
+      at_step: 4
+      condition: "YAML invalid, unknown `apiVersion` or step type, unresolved reference, or transition error (unreachable step, step not reaching `END`, missing or duplicate edge for an outcome or for `hil_ok`/`hil_nok`)"
+      system_reaction: "Enters S7 (alt-6) before any dynamic node runs; S7 offers corrected process text with line numbers; re-entry at S3. On quit returns `exit_code: 3`."
+      exit_state: "PROCESS_INVALID"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "findings with line numbers, proposed correction — Gateway -> Developer"
+    - id: "err-6"
+      at_step: 4
+      condition: "A declared skill is missing from the pool or its `SKILL.md` is invalid; `exclude_skills` names an unknown skill or one the same step declares; a declared snippet is missing or its front matter is invalid; or the pool has no `layer: agent` snippet"
+      system_reaction: "Enters S7 (alt-6), which lists the skill or snippet and the step and offers to fix the pool or the declaration; re-entry at S3. On quit returns `exit_code: 3`."
+      exit_state: "PROCESS_INVALID"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "error naming skill or snippet and step — Gateway -> Developer"
+    - id: "err-18"
+      at_step: 4
+      condition: "An execution tool is missing from `/workspace/.tools/` or invalid (`profile.yml` fails `run_ephemeral_container list --json`, `image.tar` missing or its digest not matching the profile), or a step `profile:` is not listed in `runtime.profiles`"
+      system_reaction: "Enters S7 (alt-6) before any dynamic node runs, like err-6; S7 lists profile and step and offers to copy the tool from the agent-host tool pool or fix the declaration; re-entry at S3. On quit returns `exit_code: 3`."
+      exit_state: "PROCESS_INVALID"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "error naming profile, step and failed check — Gateway -> Developer"
+    - id: "err-7"
+      at_step: 4
+      condition: "`reads` names an unknown product, or a product not produced on every path into the reading step (optional reads ending in `?` excepted)"
+      system_reaction: "Enters S7 (alt-6), which lists step and product and offers to fix `reads` or the transitions; re-entry at S3. On quit returns `exit_code: 3`."
+      exit_state: "PROCESS_INVALID"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "error naming step and product — Gateway -> Developer"
+    - id: "err-8"
+      at_step: 5
+      condition: "A required input is missing or does not match its contract (type, `schema`), a template or ruleset file is missing, or a glob matches several input sets and none is chosen"
+      system_reaction: "Enters S7 (alt-6) before any dynamic node runs; S7 offers to supply or fix input files or to choose the input set; re-entry at S4. On quit returns `exit_code: 3`."
+      exit_state: "INPUT_INVALID"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "error naming the source and the failed check — Gateway -> Developer"
+    - id: "err-9"
+      at_step: 6
+      condition: "The dynamic state machine cannot be compiled"
+      system_reaction: "Writes the error and the partial graph to `.agent/<runID>/`; enters S7 (alt-6), which offers to fix the process. On quit returns `exit_code: 2`."
+      exit_state: "BUILD_FAILED"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "compile error and path of the partial graph — Gateway -> Developer"
+    - id: "err-10"
+      at_step: 9
+      condition: "Mandatory context (goal, output schema, declared `reads`) exceeds the node `budget` even after summarizing"
+      system_reaction: "The node reports `NODE_FAILED(node, context, reason)`; E4 does not retry and escalates at once (E7 sends `SUSPEND`, writes the checkpoint, leaves S6 with `ESCALATED`); S7 (alt-6) offers to raise the budget or shorten `reads`. On quit returns `exit_code: 2`."
+      exit_state: "CONTEXT_OVER_BUDGET"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "node, budget and mandatory context size — Gateway -> Developer"
+    - id: "err-11"
+      at_step: 8
+      condition: "A node has failed `retry` times (product schema mismatch, tool or command failure)"
+      system_reaction: "E4 suspends at the threshold (E7: `SUSPEND`, `SUSPENDED`, checkpoint, `ESCALATED`); S7 (alt-6) offers to fix the cause or the process or to raise the threshold; the node restarts from its beginning. On quit returns `exit_code: 2`."
+      exit_state: "NODE_FAILED"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "node, failure kind and reasons of each attempt — Gateway -> Developer"
+    - id: "err-12"
+      at_step: 8
+      condition: "A node's timeout has expired `retry` times (each attempt cancelled by E2 with `CANCEL(node)` and counted as a failure)"
+      system_reaction: "As err-11; S7 offers to raise the timeout and retry. On quit returns `exit_code: 2`."
+      exit_state: "NODE_FAILED"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "node and timeout — Gateway -> Developer"
+    - id: "err-13"
+      at_step: 8
+      condition: "A run budget (`budgets.max_steps`, `max_llm_calls` or `timeout`) is reached"
+      system_reaction: "E2 escalates (E7: `SUSPEND`, checkpoint, `ESCALATED`) with the reported reason; S7 (alt-6) offers to raise the budget (`overrides.json`). On quit returns `exit_code: 2`."
+      exit_state: "BUDGET_EXCEEDED"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "budget name, limit and count — Gateway -> Developer"
+    - id: "err-14"
+      at_step: 10
+      condition: "The Claude CLI is not logged in or the Claude endpoint is unreachable"
+      system_reaction: "E2 escalates (E7: `SUSPEND`, checkpoint, `ESCALATED`); S7 (alt-6) offers to wait and retry or to check the login; re-entry at the failed state. On quit returns `exit_code: 2`."   # open: how S7 talks to the developer when its own Claude instance is unavailable is not defined
+      exit_state: "LLM_UNAVAILABLE"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "CLI or endpoint error — Gateway -> Developer"
+    - id: "err-15"
+      at_step: 12
+      condition: "An output target fails its `checks` or does not conform to its `template`"
+      system_reaction: "The output is kept in `.output/<runID>/` and marked invalid; E7 suspends; S7 (alt-6) offers to fix the cause and restart at the affected node. On quit returns `exit_code: 2`."
+      exit_state: "OUTPUT_INVALID"
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-GATEWAY-DIALOG"
+        object_flow: "target, failed check — Gateway -> Developer"
+    - id: "err-16"
+      at_step: 2
+      condition: "Ctrl-C, terminal closed or container stopped (at any step)"
+      system_reaction: "No S7: the run is suspended; the last checkpoint stays in `.agent/<runID>/` and `--resume <runID>` continues it (alt-1). No exit code is defined."   # TBD: exit code on Ctrl-C; a container stop kills the process (see agent-host idle shutdown, USS-002 notes)
+      exit_state: "SUSPENDED"
+    - id: "err-19"
+      at_step: 3
+      condition: "No free `runID`: `.agent/<runID>/` or `.output/<runID>/` already exists for the base `runID` and for every suffix `-2` to `-9` (e.g. folders the agent created in `.output/` in advance)"
+      system_reaction: "No S7 and no `report.md` (there is no run folder): the error is printed on the terminal and the run ends with `exit_code: 1`. No folder is reused and none is removed."   # proposed: bound of 9 attempts
+      exit_state: "NOT_STARTED"
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channel: "CHAN-FS-RUN-WORKSPACE"
+        object_flow: "exclusive create fails (`EEXIST`) — /workspace -> Agent runtime; error, `exit_code: 1` -> Developer (IP-CLI-AGENT-GRAPH-RUN)"
+    - id: "err-17"
+      at_step: 1
+      condition: "Unknown argument, or `--resume <runID>` names no run in `.agent/` or a run without a checkpoint"   # TBD: not defined in USS-008
+      system_reaction: "TBD: usage error on stderr and `exit_code: 1` proposed."   # proposed
+      exit_state: "NOT_STARTED"   # proposed
+      interaction_point:
+        ip_ref: "IP-CLI-AGENT-GRAPH-RUN"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr usage error, `exit_code: 1` — Agent runtime -> Developer"
+
+  postconditions:
+    - "`agent_graph run` exited with `exit_code: 0` and exit state `COMPLETED`; every required `output.target[*]` exists in `/workspace/.output/<runID>/` and passed its checks; `report.md` is written there"
+    - "`.agent/<runID>/` holds `binding.json` (`PROCESS_ID`, bound input files), `index.json`, `graph.json`, `gateway.jsonl`, `run_facts.jsonl`, the full command/status history, the checkpoint and, per cognitive node, `nodes/<nodeID>/` with `system.md`, `CLAUDE.md`, `.claude/skills/`, `context.md`, `context.json` and `transcript.jsonl`"
+    - "Only the process named in the chat ran, and only the files in `binding.json` were read from `.input/`"
+    - "The dynamic state machine followed only edges defined in the process `transitions`; the engine issued only the commands of the engine/dynamic contract"
+    - "Every developer interaction passed through the gateway; no node or state read or wrote the terminal directly"
+    - "All cognitive nodes had a byte-identical `system.md` and the same launch hash; each node's `CLAUDE.md` holds only pool snippets, its step contract and run facts; no node had more than `max_skills` staged skills, and no excluded skill was staged"
+    - "`work/` was archived to `archive/work.tar.gz`, deleted or kept per `runtime.work_products`; `nodes/` is kept"
+    - "Nothing outside `/workspace` and `/home/agent/.claude` was written; `.process/`, `.input/` and `identity/` were changed only by S7 with the developer's approval, each change recorded in `resolution/<n>/`"
+    - "The workspace stays on the host (`Workspace-Agents/<agentID>`) and survives container removal (USS-006), so the run can be inspected or resumed after recreating the container"
+
+  notes:
+    - "Exit only on request: no error ends the run. The run ends only on completion (exit 0), on the developer's explicit quit in S2 (err-3) or S7 (alt-6), by suspension (err-16), or, before any run exists, by a usage error (err-17, exit 1, no S7), or when no free `runID` is left (err-19, exit 1, no S7)."
+    - "Same static state machine for every process: two different process files run on the unchanged S1-S8 and E1-E7; only the dynamic state machine differs."
+    - "Prompt caching (USS-008 \"Verifying prompt caching\"): the acceptance thresholds are at least 90 % of P_run for the first turn of every cognitive node from the second on, at least 90 % of the previous turn within a node, and `ephemeral_1h_input_tokens` > 0 with `ephemeral_5m_input_tokens` = 0. Only the drift notice (alt-8) is part of the run; the measurement with `design/tools/cache_probe.py` is a design-time check, not a step of this use case."   # open: probe results not yet recorded
+    - "Open (USS-008): `enter_agent` with a command other than `claude` (`-- <cmd>` form vs a dedicated `run_agent`); cognitive node backend (`claude -p --resume` vs Agent SDK); checkpoint store (SQLite saver not in `requirements.lock`); S2 matching method; gateway queueing when two Claude instances need the developer; hashed files for re-entry; limits of S7 edits; asynchronous human steps (`timeout: 24h`); read-only enforcement of `.process/`, `.input/` and `.tools/`; location of the tool pool on agent-host and tool provenance check; process_v1 schema for `runtime.profiles` and step `profile`; non-interactive mode; skill ranking method; token counting; `exclude_snippets`; seeding of `identity/`; parallel branches and sub-processes."   # open
+    - "Interaction points: IP-CLI-AGENT-GRAPH-RUN, IP-AGENT-RUN-WORKSPACE, IP-CLAUDE-CLI and IP-EXECUTION-CONTAINER with their channels are defined in `design/00_system_boundary/interaction_points.yml`. IP-AGENT-RUN-WORKSPACE is the in-container view of the folder that IP-AGENT-WORKSPACE-FS (USS-002) creates on the host."

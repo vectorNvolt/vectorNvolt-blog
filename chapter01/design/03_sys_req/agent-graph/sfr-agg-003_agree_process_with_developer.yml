@@ -1,0 +1,26 @@
+SFR-AGG-003:
+  title: "Agree the process to run with the developer"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 3 (exceptions err-3, err-19)"
+
+  statement: "The system shall run only the process the developer has named and confirmed in the dialog."
+
+  condition: "When the preconditions of a new run hold."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must list the selectable processes with their id and title through the gateway at IP-CLI-AGENT-GRAPH-RUN, and list files sharing an id as not selectable (SFR-AGG-004)."
+    - "Must match the developer's wording against id, title and description by a Claude instance reached at IP-CLAUDE-CLI and ask back until exactly one process matches and the developer confirms it; it must not choose without the confirmation."
+    - "Must create the run identifier from the process id and the start time, and the run folder .agent/<runID>/ at IP-AGENT-RUN-WORKSPACE, only after the confirmation; the gateway transcript is written to that folder."
+    - "Must create .agent/<runID>/ and .output/<runID>/ for a new run each with an exclusive create that fails if the folder exists, and never reuse an existing folder for a new run (USS-009: the agent may write .output/ but a folder it made must not become a run folder)."
+    - "Must, when either folder exists, append -<n> to the run identifier for n = 2 to 9 and try again, and, when none is free, end with exit state NOT_STARTED and exit status 1 on the terminal, without reusing or removing any folder."
+    - "Must, when no process matches or the developer quits in this state, go straight to the report without resolution (SFR-AGG-032) with exit state INTENT_REJECTED and exit status 3."
+
+  post_conditions:
+    - "Exactly one process is selected and a run folder exists for it."
+    - "Both .agent/<runID>/ and .output/<runID>/ were created by this run; neither existed before."
+    - "No other process was loaded or run."

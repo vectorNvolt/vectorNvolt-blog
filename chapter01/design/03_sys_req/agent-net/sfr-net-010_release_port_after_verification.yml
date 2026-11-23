@@ -1,0 +1,25 @@
+SFR-NET-010:
+  title: "Release the port only after verification"
+  kind: "functional"
+  usecase_step_ref: "USC-004: alt-1"
+
+  statement: "The system shall verify every applied control and release the port of the container only when all controls are verified."
+
+  condition: "When all host-side controls have been applied."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must verify each control at IP-AGENT-NET by reading its applied state at the host side, as inspected state and not as requested state."
+    - "Must include in that reading the table as_port_<id> and the policy drop of both of its chains, the port flags (isolated on, locked on, learning off), the static (permanent) forwarding-database entry for the agent MAC on the bridge port of the container, the permanent neighbour entry (agent IP -> agent MAC on the agents-net bridge, nud permanent) of SFR-NET-009, verified before the atomic release, and the iptables rules tagged agent-net:<container> in DOCKER-USER and INPUT, checking the DNS rule (UDP and TCP 53 to 1.1.1.1 and 9.9.9.9 only) and the endpoint rule (TCP 443 to api.anthropic.com and platform.claude.com only) of SFR-NET-009 as two distinct controls, and treat the failure of any of these as a verification failure."
+    - "Must release the port at IP-AGENT-NET only after every verification has passed, as the last operation, by adding the accept rules in a single atomic nft -f: source identity (SFR-NET-009) and destination limit (SFR-NET-024). The release must not rely on a shared chain."
+    - "Must add the agent MAC to the set released of the table agents_gate (SFR-NET-025), as an element carrying the comment <container name> (SFR-NET-029), in the same nft transaction that adds the accept rules of the per-port table, so that the gate and the port open together and neither opens alone."
+    - "Must make the ingress accept rules of the per-port table set the port mark in the same transaction (SFR-NET-034), so that the gate accepts the frames of the released port."
+    - "Must read the released state back after the release, including the agent MAC in released, and verify it again."
+    - "Must, when the release or its read-back fails, remove the agent MAC from released again and load the port closed again, so that no failure leaves the gate open for the container."
+    - "Must report success to the calling tool at IP-AGENT-NET once the port is released and verified; the calling tool then runs the check-gate request (SFR-NET-021) while the container is still paused and unpauses the container only when it succeeds. The agent process starts only after the unpause, by a docker exec of the calling tool; no agent process runs at container start."
+
+  post_conditions:
+    - "The port is released only for a fully verified container; only then is its MAC in released, tagged with the container name."
+    - "The calling tool has been informed."

@@ -1,0 +1,18 @@
+SSR-AGT-005:
+  title: "Start no shell, interpreter or engine client from the agent"
+  kind: "structural"
+  usecase_step_ref: "USC-009: steps 3, 4, postconditions"
+
+  statement: "The system shall start no shell, interpreter, engine client or socket client on behalf of the agent and run code and engineering tools only in ephemeral containers."
+
+  condition: "For every agent session, from its start to its end."
+
+  interface_points:
+    - "IP-TOOL-GUARD-HOOK Tool-call guard hook"
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+
+  constraints:
+    - "Must show every command run by the agent as one allowlisted program by absolute path, which SFR-AGT-003 and SFR-AGT-004 hold."
+    - "Must show the execution tool at IP-EXEC-TOOL-CLI as the only way the agent starts a container."
+    - "Must show no toolchain or engineering tool in the agent image."
+    - "Must show an isolated procedure step running its tool without an agent session, SFR-AGG-043."

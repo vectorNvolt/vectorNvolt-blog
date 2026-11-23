@@ -1,0 +1,20 @@
+SSR-AGE-007:
+  title: "Hold a default-deny authorization policy at the engine"
+  kind: "structural"
+  usecase_step_ref: "USC-005: steps 3, 6 (alternative alt-8)"
+
+  statement: "The system shall authorize every request to the in-container engine by a default-deny policy that the agent cannot change."
+
+  condition: "For every agent container, from the start of the engine until the container is removed."
+
+  interface_points:
+    - "IP-ENGINE-AUTHZ Engine authorization interface"
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+
+  constraints:
+    - "Must show the policy compiled into the plugin, read from no workspace file, and its socket reachable by root only, not by uid 1001."
+    - "Must show the plugin running as its own non-root user and restarted by the init supervisor, with the engine failing closed while it is down."
+    - "Must show the engine started with the plugin, checked by a denied privileged create as uid 1001. The inspection of the engine's authorization plugins (agent-sandbox `docker info` check) is a deferred follow-up, not part of USS-005."
+    - "Must show the policy applying equally to the tool and to every other process of uid 1001, since the plugin has no caller identity."
+    - "Must show the engine configured with no bridge, no iptables, the authorization plugin and its data root on a 2g memory-backed folder, and the engine version pinned to a fixed release."
+    - "Residual risk: a permitted `POST /images/load` can fill the 2g memory-backed data root."

@@ -1,0 +1,22 @@
+SFR-AGC-029:
+  title: "Remove leftover network state of the agent name before the container is created"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 3 (state preparation), step 4"
+
+  statement: "The system shall remove the network state left by an earlier container of the same name, and every orphaned element of the gate set released, before it requests the creation of the container."
+
+  condition: "When the workspace folder, the Claude state directory and the host DNS file are prepared and no container for the agent identity exists (SFR-AGC-002)."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must run this step as step 7 of the 14 steps of the creation sequence, after the duplicate refusal of SFR-AGC-002 and before the creation request of SFR-AGC-006."
+    - "Must call the disarm of IP-AGENT-NET for agent-<id> (name-keyed, idempotent, exit status 0 when nothing is left)."
+    - "Must apply the orphan reconciliation of SFR-AGC-028 to the set released: evict an untagged element, disarm the name of an element whose container does not exist."
+    - "Must, when either call fails, stop with exit state NOT_CREATED and exit status 2 before any container is created, and write the failure to the error output at IP-CLI-CREATE-AGENT-CONTAINER (SFR-AGC-011)."
+
+  post_conditions:
+    - "No element of released, port table, tagged rule, neighbour entry or FDB entry of the agent name exists when the container is created."

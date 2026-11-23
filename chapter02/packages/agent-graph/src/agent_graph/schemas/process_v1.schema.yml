@@ -1,0 +1,150 @@
+# Structure of an agent-graph/v1 process file (SFR-AGG-005). Checked with the
+# JSON-Schema subset of services/yaml_schema.py. Semantic checks (reachability,
+# edge completeness, reference resolution, argv allowlist) are done by process/*.
+type: object
+required: [apiVersion, id, title, steps, transitions]
+additionalProperties: false
+properties:
+  apiVersion: {const: "agent-graph/v1"}
+  id: {type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$", maxLength: 64}
+  title: {type: string, minLength: 1}
+  description: {type: string}
+  input:
+    type: object
+    additionalProperties: false
+    properties:
+      source:
+        type: array
+        items: {$ref: "#/$defs/source"}
+      output-template-ref:
+        type: array
+        items: {$ref: "#/$defs/fileref"}
+      ruleset:
+        type: array
+        items: {$ref: "#/$defs/fileref"}
+  output:
+    type: object
+    additionalProperties: false
+    properties:
+      target:
+        type: array
+        items: {$ref: "#/$defs/target"}
+  runtime:
+    type: object
+    additionalProperties: false
+    properties:
+      tools: {type: array, items: {type: string}}
+      snippets: {type: array, items: {type: string}}
+      skills: {type: array, items: {type: string}}
+      max_skills: {type: integer, minimum: 0}
+      retry: {type: integer, minimum: 0}
+      timeout: {$ref: "#/$defs/duration"}
+      budgets:
+        type: object
+        additionalProperties: false
+        properties:
+          max_steps: {type: integer, minimum: 1}
+          max_llm_calls: {type: integer, minimum: 0}
+          timeout: {$ref: "#/$defs/duration"}
+      work_products: {enum: [archive, delete, keep]}
+  steps:
+    type: array
+    minItems: 1
+    items: {$ref: "#/$defs/step"}
+  transitions:
+    type: object
+    required: [entry, edges]
+    additionalProperties: false
+    properties:
+      entry: {type: string}
+      edges:
+        type: array
+        items: {$ref: "#/$defs/edge"}
+$defs:
+  duration:
+    anyOf:
+      - {type: integer, minimum: 1}
+      - {type: string, pattern: "^[0-9]+[smh]$"}
+  tokens:
+    anyOf:
+      - {type: integer, minimum: 1}
+      - {type: string, pattern: "^[0-9]+[kK]?$"}
+  strings:
+    type: array
+    items: {type: string}
+  source:
+    type: object
+    required: [name]
+    additionalProperties: false
+    properties:
+      name: {type: string, minLength: 1}
+      path: {type: string}
+      note: {type: string}
+      schema: {type: string}
+      required: {type: boolean}
+  fileref:
+    type: object
+    required: [name, path]
+    additionalProperties: false
+    properties:
+      name: {type: string, minLength: 1}
+      path: {type: string, minLength: 1}
+      required: {type: boolean}
+  target:
+    type: object
+    required: [name, path]
+    additionalProperties: false
+    properties:
+      name: {type: string, minLength: 1}
+      path: {type: string, minLength: 1}
+      template: {type: string}
+      checks:
+        type: array
+        items: {type: string}
+      required: {type: boolean}
+  product:
+    anyOf:
+      - {type: string, minLength: 1}
+      - type: object
+        required: [name]
+        additionalProperties: false
+        properties:
+          name: {type: string, minLength: 1}
+          file: {type: string, minLength: 1}
+          schema: {type: string}
+  step:
+    type: object
+    required: [id, name, type, instruction]
+    additionalProperties: false
+    properties:
+      id: {type: integer, minimum: 1}
+      name: {type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$", maxLength: 64}
+      type: {enum: [procedure, cognitive, human]}
+      reads: {$ref: "#/$defs/strings"}
+      produces:
+        type: array
+        items: {$ref: "#/$defs/product"}
+      outcomes: {$ref: "#/$defs/strings"}
+      instruction: {type: string}
+      success: {type: string}
+      failure: {type: string}
+      warning: {type: string}
+      retry: {type: integer, minimum: 0}
+      timeout: {$ref: "#/$defs/duration"}
+      run: {type: string, minLength: 1}
+      isolate: {type: boolean}
+      profile: {type: string, minLength: 1}
+      snippets: {$ref: "#/$defs/strings"}
+      skills: {$ref: "#/$defs/strings"}
+      exclude_skills: {$ref: "#/$defs/strings"}
+      max_skills: {type: integer, minimum: 0}
+      tools: {$ref: "#/$defs/strings"}
+      budget: {$ref: "#/$defs/tokens"}
+  edge:
+    type: object
+    required: [from, to]
+    additionalProperties: false
+    properties:
+      from: {type: string}
+      to: {type: string}
+      when: {type: string}

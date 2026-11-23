@@ -1,0 +1,19 @@
+SFR-AGG-031:
+  title: "Clean up the work products of the run"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 13"
+
+  statement: "The system shall dispose of the work products of a completed run as the process directs and keep the node records."
+
+  condition: "When the output of the run is checked."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must archive the work folder to .agent/<runID>/archive/work.tar.gz and remove the folder (default), delete it or keep it as runtime.work_products says (archive, delete, keep), in E6 cleanup, and leave S6 with DONE."
+    - "Must always keep nodes/ with the transcripts and the context records."
+
+  post_conditions:
+    - "The node records remain."
+    - "Work products exist exactly as the setting directs."

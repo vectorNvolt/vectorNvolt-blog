@@ -1,0 +1,10 @@
+# Front matter of a file in identity/.snippet/ (SFR-AGG-006).
+type: object
+required: [id, layer]
+properties:
+  id: {type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$"}
+  layer: {enum: [agent, process, step]}
+  tags:
+    type: array
+    items: {type: string}
+  auto: {type: boolean}

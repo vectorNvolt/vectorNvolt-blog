@@ -1,0 +1,157 @@
+apiVersion: agent-graph/v1
+id: boost-design
+title: Ideal synchronous boost converter design verified with ngspice
+description: >
+  Designs an ideal open-loop synchronous boost converter (L and C, fixed duty per corner) by hand
+  calculation from the hardware requirements (src/ngspice/boost_design/HW_REQ.md), writes one netlist
+  per corner on the fixed bench (src/ngspice/boost_design/bench.cir), simulates the six corners with
+  the ngspice tool (run_ephemeral_container tool ngspice), evaluates every requirement at every corner,
+  loops back to the netlist on a tool error or to the calculation when a requirement fails, and writes
+  REPORT.md. Test case TC1 of the agent-graph harness.
+
+input:
+  output-template-ref:
+    - {name: Bench, path: "src/ngspice/boost_design/bench.cir", required: true}
+  ruleset:
+    - {name: HwReq, path: "src/ngspice/boost_design/HW_REQ.md", required: true}
+
+output:
+  target:
+    - {name: Report, path: REPORT.md, checks: [non_empty], required: true}
+
+runtime:
+  tools: [Read, Write, Bash]
+  skills: [boost-converter-design]
+  snippets: [boost-process]
+  retry: 1
+  timeout: 15m
+  budgets: {max_steps: 16, max_llm_calls: 40, timeout: 90m}
+  work_products: keep
+
+steps:
+  - id: 1
+    name: calc
+    type: cognitive
+    reads: ["input.ruleset[HwReq]", "input.output-template-ref[Bench]", "verify_report?"]
+    produces: [{name: design, file: design.md}]
+    tools: [Read, Write]
+    instruction: |
+      IF IS_AVAILABLE(verify_report)
+      THEN ANALYZE(verify_report, "failed rows against input.ruleset[HwReq]")
+      PROPOSE("L + C", "E6 values from input.ruleset[HwReq].HW-BST-07, differing from verify_report when available")
+      FOR EACH corner IN [v09_l02, v09_l20, v12_l02, v12_l20, v15_l02, v15_l20]:
+        ANALYZE(corner, "D, D_TON per Bench rule, Rload, IL0, VOUT0 from input.ruleset[HwReq]")
+      ANALYZE("L_min + C_min", "worst corner of input.ruleset[HwReq].HW-BST-03 + HW-BST-04, before the 1.1 margin")
+      FILL(design, "with iteration (1, or verify_report iteration + 1) + L_min + C_min + L + C + one row per corner (D, D_TON, Rload, IL0, VOUT0) + expected ripple + failure analysis when available")
+      WRITE(design, "calculation per hand arithmetic")
+    success: |
+      PRINT('STEP 1: DONE')
+    failure: |
+      STOP
+      PRINT('<ERROR_DETAILS>')
+
+  - id: 2
+    name: netlist
+    type: cognitive
+    reads: ["design", "input.output-template-ref[Bench]", "sim_result?"]
+    produces: [{name: netlist, file: netlist.md}]
+    tools: [Read, Write]
+    instruction: |
+      IF IS_AVAILABLE(sim_result)
+      THEN ANALYZE(sim_result, "error lines against the netlists in /workspace/.input/boost_design/ + input.output-template-ref[Bench]")
+      FOR EACH corner IN [v09_l02, v09_l20, v12_l02, v12_l20, v15_l02, v15_l20]:
+        INSTANTIATE("Bench", "with the design row of corner + design L + C, correcting the netlist when sim_result is available")
+        WRITE("/workspace/.input/boost_design/<corner>.cir", "netlist per Bench, all placeholders replaced, comment lines of Bench kept or dropped, no other line added")
+      FILL(netlist, "with design iteration + L + C + one row per corner (netlist path + VIN + D_TON + RLOAD + IL0 + VOUT0)")
+      WRITE(netlist, "netlist record")
+    success: |
+      PRINT('STEP 2: DONE')
+    failure: |
+      STOP
+      PRINT('<ERROR_DETAILS>')
+
+  - id: 3
+    name: simulate
+    type: cognitive
+    reads: ["netlist"]
+    produces: [{name: sim_result, file: sim.md}]
+    outcomes: [ok, tool_error]
+    tools:
+      - Read
+      - Write
+      - "Bash(run_ephemeral_container tool ngspice:*)"
+      - "Bash(python3 /workspace/src/ngspice/readraw.py:*)"
+    instruction: |
+      DERIVE(B, "smallest B >= 1 such that bst<B> to bst<B+5> are all absent from `ls /workspace/.output/exec/`")
+      FOR EACH corner IN [v09_l02, v09_l20, v12_l02, v12_l20, v15_l02, v15_l20] WITH index FROM 0 TO 5 DO:
+        DERIVE(N, "B + index")
+        RUN("run_ephemeral_container tool ngspice --exec-id bst<N> --in netlist=/workspace/.input/boost_design/<corner>.cir", "single command: no pipe, no ;, no &&, no redirect")
+        IF "exec dir already exists" IN RUN output
+        THEN DERIVE(B, "smallest B > N with bst<B> to bst<B+5-index> absent") THEN DERIVE(N, "B + index") THEN RUN again once
+        IF IS_NOT_PRESENT("/workspace/.output/exec/bst<N>/result.json")
+        THEN COLLECT("cause + reason", "stderr of RUN, verbatim") THEN STORE(run_result)
+        ELSE COLLECT("exit + cause", "/workspace/.output/exec/bst<N>/result.json") THEN STORE(run_result)
+        IF run_result.exit != 0
+        THEN COLLECT("error lines", "/workspace/.output/exec/bst<N>/stderr.log, verbatim") THEN STORE(error_lines)
+        IF IS_AVAILABLE("/workspace/.output/exec/bst<N>/out/sim.log")
+        THEN COLLECT("vout_avg + vout_avg_prev + vout_pp + il_avg + il_pp", "/workspace/.output/exec/bst<N>/out/sim.log") THEN STORE(measured)
+        IF IS_AVAILABLE("/workspace/.output/exec/bst<N>/out/sim.raw")
+        THEN RUN("python3 /workspace/src/ngspice/readraw.py /workspace/.output/exec/bst<N>/out/sim.raw --at 0.00095 --svg /workspace/.input/boost_design/<corner>.svg --vars v(out)", "single command, sim.raw is binary: read it only through this command")
+      FILL(sim_result, "with one row per corner: corner + exec ID + run_result + error_lines + measured + readraw output, facts only")
+      WRITE(sim_result, "facts only, no judgement of input.ruleset[HwReq]")
+      IF FOR EACH corner: run_result.exit == 0 AND run_result.cause == ok AND IS_COHERENT(measured, "all five values present")
+      THEN SET_OUTCOME(ok)
+      ELSE SET_OUTCOME(tool_error)
+    success: |
+      PRINT('STEP 3: DONE')
+    failure: |
+      STOP
+      PRINT('<ERROR_DETAILS>')
+
+  - id: 4
+    name: evaluate
+    type: cognitive
+    reads: ["design", "sim_result", "input.ruleset[HwReq]"]
+    produces: [{name: verify_report, file: verify.md}]
+    outcomes: [pass, fail]
+    tools: [Read, Write]
+    instruction: |
+      FOR EACH corner IN [v09_l02, v09_l20, v12_l02, v12_l20, v15_l02, v15_l20]:
+        FOR EACH rule IN input.ruleset[HwReq].HW-BST-*:
+          ANALYZE(rule, "PASS|FAIL|N/A from design + sim_result numbers of corner only")
+      FILL(verify_report, "with design iteration + L + C + sim_result exec IDs + one row per rule and one column per corner")
+      WRITE(verify_report, "requirement table")
+      IF IS_COHERENT(verify_report, "no FAIL cell")
+      THEN SET_OUTCOME(pass)
+      ELSE SET_OUTCOME(fail)
+    success: |
+      PRINT('STEP 4: DONE')
+    failure: |
+      STOP
+      PRINT('<ERROR_DETAILS>')
+
+  - id: 5
+    name: report
+    type: cognitive
+    reads: ["design", "verify_report", "sim_result"]
+    produces: ["output.target[Report]"]
+    tools: [Read, Write]
+    instruction: |
+      FILL(output.target[Report], "with design + chosen L + C + verify_report requirement x corner matrix + exec IDs per corner + links to the waveform SVGs in /workspace/.input/boost_design/ when present")
+      WRITE(output.target[Report], "report ending with the line: RESULT: PASS")
+    success: |
+      PRINT('STEP 5: DONE')
+    failure: |
+      STOP
+      PRINT('<ERROR_DETAILS>')
+
+transitions:
+  entry: calc
+  edges:
+    - {from: calc, to: netlist, when: done}
+    - {from: netlist, to: simulate, when: done}
+    - {from: simulate, to: evaluate, when: "outcome == ok"}
+    - {from: simulate, to: netlist, when: "outcome == tool_error"}
+    - {from: evaluate, to: report, when: "outcome == pass"}
+    - {from: evaluate, to: calc, when: "outcome == fail"}
+    - {from: report, to: END, when: done}

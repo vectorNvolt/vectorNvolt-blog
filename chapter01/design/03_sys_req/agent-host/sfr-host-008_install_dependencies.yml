@@ -1,0 +1,32 @@
+SFR-HOST-008:
+  title: "Install the required dependencies on the foundation VM"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 5 (exception err-4)"
+  # Changed 2026-11-22: runs directly as root on the VM. Removed: the /mnt/<drive> directory cleanup and the
+  # resolv.conf / systemd-resolved handling (WSL only). Added: wait for systemd to finish starting.
+
+  # USC items: ca-certificates, curl, gnupg, Docker engine (Ubuntu archive packages docker.io and docker-buildx; docker-buildx provides BuildKit, which create_agent_image needs for docker build --progress=plain, as the legacy builder is deprecated), gVisor (runsc), Python 3, gnome-keyring, git, tar, nftables, iptables, iproute2. Runtime registration: SFR-HOST-012.
+  statement: "The system shall install the certificate bundle, a download tool and a signature tool (to fetch and verify the sandboxed runtime package repository), a container engine, a sandboxed container runtime, a Python 3 runtime, a credential keyring, a version control tool, an archive tool, the nftables packet filter tool, the iptables packet filter tool and the iproute2 network configuration tools on the foundation VM."
+
+  condition: "When the hostname has been set (SFR-HOST-015)."
+
+  interface_points:
+    - "IP-HOST-EXEC Direct command execution on the foundation VM"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must run the installation as root directly on the VM through IP-HOST-EXEC."
+    - "Must first wait for the service manager to finish starting (systemctl is-system-running --wait, at most 120 s; a degraded result does not stop the run)."
+    - "Must install nftables (nft, for the per-port netdev tables of create_agent_net) and iptables (for the host-side DOCKER-USER and INPUT rules of create_agent_net) on the VM, and iproute2 (ip and bridge, for the bridge port flags, the static FDB entry and the veth lookup of create_agent_net) on the VM."
+    - "Must install the container engine as the two Ubuntu archive packages docker.io and docker-buildx, so that the twelve listed dependencies are thirteen packages: ca-certificates, curl, gnupg, docker.io, docker-buildx, runsc, python3, gnome-keyring, git, tar, nftables, iptables, iproute2."
+    - "Must verify the signing key of the gVisor apt repository before the repository is trusted: the key downloaded from https://gvisor.dev/archive.key must have the primary key fingerprint pinned in the tool (trust on first use, pinned on 2026-10-30; overridable by the environment variable AGENT_HOST_GVISOR_KEY_FINGERPRINT, 40 hex characters), otherwise the run stops with exit status 2 and the repository is not trusted; the packages of the repository are then checked by apt against that key (signed-by)."
+    - "Must not install the sandboxed container runtime from a repository whose key does not match the pinned fingerprint."
+    - "Must enable and start the container engine service (systemctl enable --now docker) at the end of the installation."
+    - "Must change no group membership and no sudo configuration of agent-operator."
+    - "Must, when an installation command fails, stop, report the failed step to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 2."
+
+  post_conditions:
+    - "The twelve listed dependencies (ca-certificates, curl, gnupg, container engine, sandboxed container runtime, Python 3, credential keyring, git, tar, nftables, iptables, iproute2), thirteen packages, are installed on the VM when the installation succeeded."
+    - "The container engine service is enabled and running when the installation succeeded."
+    - "The gVisor apt repository is trusted only after its signing key matched the pinned fingerprint."
+    - "The group membership and sudo configuration of agent-operator are unchanged."

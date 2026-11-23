@@ -1,0 +1,18 @@
+SFR-AGG-041:
+  title: "Bound the paths the run writes"
+  kind: "functional"
+  usecase_step_ref: "USC-008: postconditions"
+
+  statement: "The system shall write nothing outside /workspace and /home/agent/.claude and change the process, input and identity folders only in resolution."
+
+  condition: "While a run is active and after it ended."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must write nothing outside /workspace and /home/agent/.claude (SSR-AGG-007)."
+    - "Must change .process/, .input/ and identity/ only in S7 with the developer's approval of each change (SFR-AGG-033), and record each change in .agent/<runID>/resolution/<n>/."
+
+  post_conditions:
+    - "Every change to .process/, .input/ or identity/ has an approval and a record in resolution/<n>/."

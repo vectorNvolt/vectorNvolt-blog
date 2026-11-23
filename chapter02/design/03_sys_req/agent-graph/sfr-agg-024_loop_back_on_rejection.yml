@@ -1,0 +1,20 @@
+SFR-AGG-024:
+  title: "Send a rejected review back"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 11 (alternative alt-3)"
+
+  statement: "The system shall return a rejected review to the step the process names and carry the developer's feedback with it."
+
+  condition: "When the developer rejects the reviewed items."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must send the rejection as HIL_NOK(feedback), make the feedback the product <step-name>_feedback and append it to the run facts."
+    - "Must follow the hil_nok edge, make the feedback available as an optional read of the target step, and bound the loop by budgets.max_steps (SFR-AGG-016)."
+
+  post_conditions:
+    - "The target step runs again from its beginning with the feedback available."
+    - "The loop ends at the step budget."

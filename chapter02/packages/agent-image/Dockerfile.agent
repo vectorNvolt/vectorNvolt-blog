@@ -1,0 +1,148 @@
+# Dockerfile.agent: agent image content (SSR-IMG-004, SSR-IMG-005, SSR-IMG-017, SSR-IMG-018, SFR-IMG-019, USC-008).
+# Built by create_agent_image in agent-host with a tar build context (this file, requirements.lock, the
+# agent_graph package directory and the prebuilt static binaries bin/agent-init, bin/ephemeral-authz and
+# bin/run_ephemeral_container, USS-005) sent on stdin.
+# Contains no credentials: no ENV secrets, no COPY of home or config directories.
+# Every component is pinned to an exact version and every download is checked against a hash
+# (SSR-IMG-004); README.md "Refreshing the pins" describes how to move the pins forward.
+
+# Base image: Ubuntu 26.04 plus the snapshot-pinned apt packages (ca-certificates, curl, docker.io, nodejs, npm,
+# openssl, python3.14, tini). It is built from Dockerfile.base by create_agent_image as agent-base:<hash of
+# Dockerfile.base> and passed in as BASE_IMAGE; this build never contacts snapshot.ubuntu.com. No default on
+# purpose: building this file alone fails instead of using an unpinned base.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+# claude CLI release; the sha512 checksums in the claude CLI step below belong to this version.
+ARG CLAUDE_CODE_VERSION=2.1.314
+
+# claude CLI: the npm wrapper package and the native package for the build architecture (the real
+# binary, an optional dependency of the wrapper): linux-x64 on amd64, linux-arm64 on arm64, selected
+# by dpkg --print-architecture (the native tarball is always saved as claude-code-native.tgz; the case
+# picks the package and its hash); any other architecture fails the build. Both tarballs are downloaded
+# and checked against the sha512 below (hex form of the registry's dist.integrity) before npm sees
+# them; npm then installs from the local files with --offline, so it downloads nothing. The wrapper's
+# postinstall (install.cjs) only links the native binary into bin/claude.exe.
+# The wrapper hash and both native hashes belong to CLAUDE_CODE_VERSION.
+RUN set -eu \
+    && mkdir /tmp/claude-code && cd /tmp/claude-code \
+    && arch="$(dpkg --print-architecture)" \
+    && case "$arch" in \
+        amd64) suffix=linux-x64; \
+            printf '%s  %s\n' 620d1ae66a5d9060a52b4ae014cc5b096656df066daa03a16236c84802eac8be6d7c00c7857f4cb3a131034fde7df81227d31a59f1cc3e7b6bc9e386e8c93a1d claude-code-native.tgz > native.sha512 ;; \
+        arm64) suffix=linux-arm64; \
+            printf '%s  %s\n' 695bfc50676932cd805db14f1a214ab58945ff53f490dad2c14acfc7d6bf840cc05be5b4c787b47ddcd56336e5b0bd0a68d483f152cb16af17f66ffc263e4784 claude-code-native.tgz > native.sha512 ;; \
+        *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL --proto '=https' -o claude-code.tgz \
+        "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-${CLAUDE_CODE_VERSION}.tgz" \
+    && curl -fsSL --proto '=https' -o claude-code-native.tgz \
+        "https://registry.npmjs.org/@anthropic-ai/claude-code-${suffix}/-/claude-code-${suffix}-${CLAUDE_CODE_VERSION}.tgz" \
+    && printf '%s  %s\n' \
+        883e7c3d766f342ca4466dd946257fcc93ac7a35c7fc5b4b645b6c16a507c45c41b2d84ec9bfb430835e27c12c35b486f04093b1f8733c867097cc7a3484644a claude-code.tgz \
+        >> native.sha512 \
+    && sha512sum -c native.sha512 \
+    && npm install -g --offline --no-audit --no-fund --cache /tmp/claude-code/npm-cache \
+        ./claude-code-native.tgz ./claude-code.tgz \
+    && cd / && rm -rf /tmp/claude-code \
+    && test "$(command -v claude)" = /usr/local/bin/claude \
+    && claude --version | grep -F "${CLAUDE_CODE_VERSION}"
+
+# langgraph, rich and their dependencies into a Python 3.14 venv. --require-hashes fails the build on any
+# package or file whose sha256 is not in requirements.lock; --only-binary takes wheels only (no
+# sdist build step).
+COPY requirements.lock /tmp/requirements.lock
+RUN python3.14 -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir --disable-pip-version-check \
+        --require-hashes --only-binary :all: -r /tmp/requirements.lock \
+    && rm /tmp/requirements.lock
+
+ENV PATH="/opt/venv/bin:${PATH}"
+
+# agent_graph runtime (USC-008 precondition: /opt/venv provides langgraph and the agent_graph package).
+# The package source (copy of packages/agent-graph/src/agent_graph: *.py and schemas/*.yml) comes from the
+# build context; it is not pip-installed, so no build backend is needed and its dependencies (langgraph,
+# pyyaml, rich) come only from requirements.lock (SSR-IMG-004). COPY leaves it root:root (files 0644, dirs 0755),
+# read-only for the agent user. A .pth file puts /opt/agent_graph on the venv's sys.path; the wrapper
+# /usr/local/bin/agent_graph runs `python -m agent_graph` with the venv interpreter.
+# The checks stop the build if anything in /opt/agent_graph is not root-owned or is group/other-writable,
+# if the import does not resolve to /opt/agent_graph, or if the CLI cannot start.
+COPY agent_graph /opt/agent_graph/agent_graph
+RUN set -eu \
+    && printf '%s\n' /opt/agent_graph > /opt/venv/lib/python3.14/site-packages/agent_graph.pth \
+    && printf '%s\n' '#!/bin/sh' 'exec /opt/venv/bin/python -m agent_graph "$@"' > /usr/local/bin/agent_graph \
+    && chmod 0755 /usr/local/bin/agent_graph \
+    && test -z "$(find /opt/agent_graph \( ! -user root -o ! -group root -o -perm /022 \) -print)" \
+    && test -f /opt/agent_graph/agent_graph/schemas/process_v1.schema.yml \
+    && /opt/venv/bin/python -c "import agent_graph; assert agent_graph.__file__ == '/opt/agent_graph/agent_graph/__init__.py', agent_graph.__file__" \
+    && test "$(command -v agent_graph)" = /usr/local/bin/agent_graph \
+    && agent_graph --help > /dev/null
+
+# The agent_graph gateway renders with rich using a hex (truecolor) palette. docker exec -t sets TERM=xterm
+# and no COLORTERM, so rich would fall back to 8 colours and most of the palette would come out white or grey.
+# The supported client (a truecolor terminal or the VS Code terminal -> enter_agent -> docker exec -t) is truecolor. A terminal without
+# truecolor shows the colours wrong instead of falling back. Without a TTY rich prints plain text anyway.
+ENV COLORTERM=truecolor
+
+# claude CLI sends no non-essential traffic (SSR-IMG-017).
+ENV CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+
+# claude does not update itself: it stays the root-owned /usr/local/bin/claude installed above. The managed
+# settings (/etc/claude-code, a read-only bind mount per agent, USS-009) set this too; nothing is created or
+# copied into /etc/claude-code here because it is a mount.
+ENV DISABLE_AUTOUPDATER=1
+
+# Non-root user for the agent workload (docker exec -u 1001); uid/gid 1001 matches the owner of the
+# agent workspace folders (USC-002). In the docker group to reach the in-container daemon (USS-005).
+# The base image's own user "ubuntu" holds uid/gid 1000, so 1001 is free (informational: the
+# step does not depend on it, and groupadd/useradd fail the build if 1001 were taken); docker.io
+# creates the system group docker, the getent guard keeps this step correct if it does not.
+# No USER: tini and dockerd run as root (USS-003).
+RUN (getent group docker || groupadd --system docker) \
+    && groupadd --gid 1001 agent \
+    && useradd --uid 1001 --gid 1001 --groups docker --create-home --shell /bin/bash agent
+WORKDIR /workspace
+
+# System user and group authz: runs the engine authorization plugin ephemeral-authz (USS-005, SSR-AGC-011).
+# No home, no login shell, not in group docker (so it cannot reach the engine socket as a client) and not
+# uid 1001 (the agent user); the system range picks a free uid/gid.
+RUN groupadd --system authz \
+    && useradd --system --gid authz --no-create-home --shell /usr/sbin/nologin authz
+
+# agent-init (init supervisor), ephemeral-authz (authorization plugin) and run_ephemeral_container (the
+# agent's command to start ephemeral containers): prebuilt static binaries from the build context bin/
+# (USS-005). Root-owned, mode 0755, so the agent user cannot replace or modify them (SSR-AGC-011). The check
+# stops the build if any is missing, not root-owned, group/other-writable or not executable.
+COPY bin/agent-init /usr/local/sbin/agent-init
+COPY bin/ephemeral-authz /usr/local/libexec/ephemeral-authz
+COPY bin/run_ephemeral_container /usr/local/bin/run_ephemeral_container
+RUN set -eu \
+    && chown root:root /usr/local/sbin/agent-init /usr/local/libexec/ephemeral-authz /usr/local/bin/run_ephemeral_container \
+    && chmod 0755 /usr/local/sbin/agent-init /usr/local/libexec/ephemeral-authz /usr/local/bin/run_ephemeral_container \
+    && test -z "$(find /usr/local/sbin/agent-init /usr/local/libexec/ephemeral-authz /usr/local/bin/run_ephemeral_container \( ! -user root -o ! -group root -o -perm /022 \) -print)" \
+    && test -x /usr/local/sbin/agent-init \
+    && test -x /usr/local/libexec/ephemeral-authz \
+    && test -x /usr/local/bin/run_ephemeral_container
+
+# In-container daemon config (USS-003, USS-005); not the host daemon.json of agent-host.
+# authorization-plugins: dockerd reaches the plugin ephemeral-authz at /run/docker/plugins/ephemeral-authz.sock.
+# The plugin is required, default-deny and fails closed (to verify with the pinned engine version). The
+# directory /run/docker/plugins is not created here (/run is runtime); agent-init creates it.
+# The engine version pin (docker.io above) must include the CVE-2024-41110 fix (authz bypass with a zero-length
+# request body); docker.io 29.1.3 is newer than the fixed releases, check.
+# TODO: storage-driver (overlay2 vs vfs under gVisor) is an open item (USS-005).
+RUN mkdir -p /etc/docker && printf '%s\n' '{' \
+    '  "default-runtime": "runc",' \
+    '  "authorization-plugins": ["ephemeral-authz"],' \
+    '  "bridge": "none", "iptables": false, "ip6tables": false,' \
+    '  "hosts": ["unix:///var/run/docker.sock"], "group": "docker",' \
+    '  "data-root": "/var/lib/docker",' \
+    '  "exec-opts": ["native.cgroupdriver=cgroupfs"],' \
+    '  "no-new-privileges": true' \
+    '}' > /etc/docker/daemon.json \
+    && chmod 644 /etc/docker/daemon.json
+
+# tini is PID 1 (root) and supervises one child, agent-init (root). agent-init starts ephemeral-authz as user
+# authz, waits for its socket, then starts dockerd (settings from daemon.json only, no flags). It restarts the
+# plugin if it exits and exits when dockerd exits (USS-005).
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/sbin/agent-init"]

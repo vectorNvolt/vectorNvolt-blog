@@ -1,0 +1,4 @@
+# Placeholder. Procedure steps with isolate: true now run through the Go tool
+# run_ephemeral_container (USS-005 / USC-005; packages/agent-exec), which uses the exec
+# profiles under .tools/ and their images, and services/container.py ContainerExec.
+# This file defines no image and stays a placeholder (see packages/package_template/Dockerfile.sandbox).

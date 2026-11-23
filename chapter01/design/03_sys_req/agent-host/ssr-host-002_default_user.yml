@@ -1,0 +1,18 @@
+SSR-HOST-002:
+  title: "Hold agent-operator as a non-root, non-privileged user of agent-host"
+  kind: "structural"
+  usecase_step_ref: "USC-001: steps 3, 8"
+  # Changed 2026-11-22: agent-operator is no longer the "default user" of a distro (no wsl.conf [user] default).
+  # The foundation's login user (ubuntu, or the Lima host user) keeps passwordless sudo and is the way in over SSH;
+  # agent-operator is the owner of the agent workspaces (UID/GID 1001) and nothing else.
+
+  statement: "The system shall hold agent-operator as a non-root user with UID and GID 1001 and without root-equivalent privilege on the agent-host VM."
+
+  condition: "From the verified creation until the VM is removed."
+
+  interface_points:
+    - "IP-HOST-EXEC Direct command execution on the foundation VM"
+
+  constraints:
+    - "Must show agent-operator with the UID and the GID 1001, checked as the user agent-operator, which SFR-HOST-005 establishes and SFR-HOST-009 verifies."
+    - "Must show agent-operator with no root-equivalent privilege: no sudo, admin, wheel, adm, disk, lxd, libvirt or docker group membership and no sudoers entry (checked as `sudo -n true` failing; a missing sudo binary also passes), checked as the user agent-operator, which SFR-HOST-005 establishes and SFR-HOST-009 verifies."

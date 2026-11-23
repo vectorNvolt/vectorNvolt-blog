@@ -1,0 +1,23 @@
+SFR-NET-011:
+  title: "Keep the container closed when arming fails"
+  kind: "functional"
+  usecase_step_ref: "USC-004: alt-1, err-7"
+
+  statement: "The system shall keep the container paused and its port closed, without accept rules, when any step of an arming request fails, and leave the removal of the container to the calling tool or, when no tool removes it, to the guard of the sandbox after a successful disarm."
+
+  condition: "When any apply or verify step of an arming request fails."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must keep the container paused, its agent MAC out of the set released of the agents-net gate (the clean slate of SFR-NET-028 has removed any element of an earlier run, and a failed release removes the MAC again) and its port table without accept rules, both chains on policy drop, at IP-AGENT-NET."
+    - "Must report the failure naming the failed control to the calling tool at IP-AGENT-NET."
+    - "Must report the exit state GATED_UNARMED at IP-AGENT-NET."
+    - "Must show the container and the already applied controls left in place without rollback at IP-AGENT-NET."
+    - "Must leave the removal of the still paused container to the calling tool, which reports the failure with exit status 2 at IP-CLI-CREATE-AGENT-CONTAINER. The guard of the sandbox may also remove such a container, but only after a successful disarm of its name (SFR-NET-027); when that disarm fails the container is left in place, paused and closed."
+    - "Note: a refusal because the container is missing, not running, not paused, not attached to agents-net only, not on runtime runsc or without restart policy exactly no, or because the gate is missing (SFR-NET-008), happens before any control is installed; nothing is left in place and GATED_UNARMED is reported with exit status 1."
+
+  post_conditions:
+    - "No container that merely looks armed has been released."
+    - "The calling tool holds the failure to remove the container and to report to the Developer."

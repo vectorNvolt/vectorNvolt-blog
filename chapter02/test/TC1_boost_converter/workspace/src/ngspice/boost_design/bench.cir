@@ -1,0 +1,29 @@
+* TC1 ideal synchronous boost bench
+* Template: replace every angle-bracket placeholder with a plain number (SPICE suffixes allowed).
+*   <VIN>    input voltage in V (9, 12 or 15)
+*   <D_TON>  gate pulse width in s = D*5u - 1n, with D = 1 - Vin/Vout.
+*            The 1n is the pulse rise/fall edge (1n each), so the effective on-time is D*5u.
+*   <L>      inductance in H (single value for all corners)
+*   <C>      output capacitance in F (single value for all corners)
+*   <RLOAD>  load resistor in ohm (120 for 0.2 A, 12 for 2 A at 24 V)
+*   <IL0>    initial inductor current in A = Iout*Vout/Vin
+*   <VOUT0>  initial output voltage in V (24)
+* Do not add .control, .include or any other line: only the placeholders are edited.
+VIN vin 0 DC <VIN>
+VSENSE vin lx_in 0
+L1 lx_in sw <L> IC=<IL0>
+S1 sw 0 gate 0 SWL
+S2 sw out 0 gate SWH
+C1 out 0 <C> IC=<VOUT0>
+RLOAD out 0 <RLOAD>
+VG gate 0 PULSE(0 1 0 1n 1n <D_TON> 5u)
+* S1 low-side FET: on while gate is high. S2 high-side FET: control wired as (0, gate), on while gate is low.
+.model SWL SW(Ron=1m Roff=1Meg Vt=0.5 Vh=0)
+.model SWH SW(Ron=1m Roff=1Meg Vt=-0.5 Vh=0)
+.tran 10n 1m 0 10n uic
+.meas tran vout_avg AVG v(out) FROM=0.9m TO=1m
+.meas tran vout_avg_prev AVG v(out) FROM=0.8m TO=0.9m
+.meas tran vout_pp PP v(out) FROM=0.9m TO=1m
+.meas tran il_avg AVG i(vsense) FROM=0.9m TO=1m
+.meas tran il_pp PP i(vsense) FROM=0.9m TO=1m
+.end

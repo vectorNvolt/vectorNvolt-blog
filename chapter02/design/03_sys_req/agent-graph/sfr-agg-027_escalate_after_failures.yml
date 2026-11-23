@@ -1,0 +1,21 @@
+SFR-AGG-027:
+  title: "Escalate a node that kept failing"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 8 (exceptions err-11, err-12; shared escalation path of err-10, err-13, err-14, err-15)"
+
+  statement: "The system shall suspend the run and escalate to resolution when a node has failed its retry threshold, and shall use the same escalation path for every other escalation."
+
+  condition: "When the node has failed retry times (E4 failure_policy: failed attempts reach the retry threshold) or another cause escalates: a reached run budget (SFR-AGG-016), an unavailable language model (SFR-AGG-029), context over budget (SFR-AGG-028) or an invalid output (SFR-AGG-030)."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must, in E7 suspend, send SUSPEND to the dynamic state machine (which reports SUSPENDED), write the checkpoint and leave S6 with ESCALATED(reason) naming the node, the failure kind and the reasons of each attempt (for a retry exhaustion: the node has failed retry times, step retry else runtime.retry, default 2, SFR-AGG-026)."
+    - "Must enter resolution (S7, SFR-AGG-033) through the gateway at IP-CLI-AGENT-GRAPH-RUN; the node restarts from its beginning (RESTART(node)) after a fix. For err-11 and err-12 resolution may offer to raise the retry threshold or the timeout, applied through overrides.json."
+    - "Must, on the developer's quit, keep the checkpoint and report the exit state of the originating error with exit status 2: NODE_FAILED for err-11 and err-12, BUDGET_EXCEEDED for err-13, LLM_UNAVAILABLE for err-14, CONTEXT_OVER_BUDGET for err-10 (SFR-AGG-028), OUTPUT_INVALID for err-15."
+
+  post_conditions:
+    - "The run is resumable."
+    - "No further attempt ran without the developer."

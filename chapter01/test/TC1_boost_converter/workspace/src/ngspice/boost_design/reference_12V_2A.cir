@@ -1,0 +1,21 @@
+* TC1 ideal synchronous boost bench
+* Reference design (bench.cir filled): Vin 12 V, Iout 2 A, D = 0.5, L = 33u, C = 33u. Manual tool smoke test only.
+* D_TON = D*5u - 1n = 2.5u - 1n = 2.499u (1n pulse edge, effective on-time 2.5u).
+VIN vin 0 DC 12
+VSENSE vin lx_in 0
+L1 lx_in sw 33u IC=4
+S1 sw 0 gate 0 SWL
+S2 sw out 0 gate SWH
+C1 out 0 33u IC=24
+RLOAD out 0 12
+VG gate 0 PULSE(0 1 0 1n 1n 2.499u 5u)
+* S1 low-side FET: on while gate is high. S2 high-side FET: control wired as (0, gate), on while gate is low.
+.model SWL SW(Ron=1m Roff=1Meg Vt=0.5 Vh=0)
+.model SWH SW(Ron=1m Roff=1Meg Vt=-0.5 Vh=0)
+.tran 10n 1m 0 10n uic
+.meas tran vout_avg AVG v(out) FROM=0.9m TO=1m
+.meas tran vout_avg_prev AVG v(out) FROM=0.8m TO=0.9m
+.meas tran vout_pp PP v(out) FROM=0.9m TO=1m
+.meas tran il_avg AVG i(vsense) FROM=0.9m TO=1m
+.meas tran il_pp PP i(vsense) FROM=0.9m TO=1m
+.end

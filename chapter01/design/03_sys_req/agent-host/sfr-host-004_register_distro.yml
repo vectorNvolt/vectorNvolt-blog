@@ -1,0 +1,9 @@
+SFR-HOST-004:
+  title: "WITHDRAWN 2026-11-22: Register the agent-host distro as a version 2 distro"
+  kind: "functional"
+  status: "withdrawn"
+  withdrawn: "withdrawn 2026-11-22: WSL2 path removed"
+  usecase_step_ref: "USC-001: withdrawn (WSL removed; exception err-3, err-10 withdrawn)"
+  # No distro registration and no WSL version gate (wsl.exe --import, --version 2, WSL 2.4.10).
+  # The VM is created before the tool runs, from vm/agent-host.lima.yaml (Lima) or
+  # vm/agent-host.cloud-init.yaml (Multipass, cloud), see SFR-HOST-014 for what the tool requires of it.

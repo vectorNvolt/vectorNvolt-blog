@@ -1,0 +1,20 @@
+SFR-AGG-018:
+  title: "Stage the skills of a cognitive node"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 9"
+
+  statement: "The system shall stage for each cognitive node exactly its declared skills and the best-ranked pool skills within its limit."
+
+  condition: "When the working set of a cognitive node is composed."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must stage into the node's own working directory, never into the workspace root or the user-level location."
+    - "Must rank pool skills by name, description and tags against the node goal after removing the excluded skills, which are never staged and never ranked; the ranking method is open in USS-008."
+    - "Must stage no more skills than the limit max_skills (step, else runtime.max_skills, else 3) and no excluded skill."
+
+  post_conditions:
+    - "Skills not staged are invisible to the node."
+    - "Declared skills are present in the working set."

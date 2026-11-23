@@ -1,0 +1,17 @@
+SSR-AGG-006:
+  title: "Hold a durable checkpoint and full command history"
+  kind: "structural"
+  usecase_step_ref: "USC-008: steps 7, 8; exception err-16"
+
+  statement: "The system shall hold the checkpoint and the command and status history durably in the run folder."
+
+  condition: "For every run, from the start command until the run folder is removed."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show that the checkpoint store is a file or database in .agent/<runID>/ that survives a process end; an in-memory store does not satisfy the requirement."
+    - "Must show that the full command and status history is written to .agent/<runID>/ (USC-008 step 8)."
+    - "Must show that every command and status is appended to the history before the next command is sent."   # proposed: stricter ordering, USC-008 only says the history is written to .agent/<runID>/
+    - "Must show that the checkpoint is readable after the container was removed and created again (SSR-AGG-015)."

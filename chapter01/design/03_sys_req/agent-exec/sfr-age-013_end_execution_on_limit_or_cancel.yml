@@ -1,0 +1,21 @@
+SFR-AGE-013:
+  title: "End an execution on cancel, timeout, output cap or memory limit"
+  kind: "functional"
+  usecase_step_ref: "USC-005: step 8 (alternative alt-6)"
+
+  statement: "The system shall kill and remove the running container when the caller cancels or a limit of the execution is exceeded."
+
+  condition: "When the tool receives SIGTERM or SIGINT, or the timeout is reached, or the output folder exceeds the output cap, or the container is killed for memory."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+
+  constraints:
+    - "Must exit with 130 and cause `cancel` on cancel, 124 and `timeout` on the timeout (default and ceiling the profile `timeout_s`, one limit for both install phases), 137 and `out_cap` on the cap (build: also the build folder), 137 and `oom` on the out-of-memory event."
+    - "Must kill the running container (install: the running phase's) and remove it (install: both containers) at IP-INCONTAINER-ENGINE."
+    - "Must keep the output written so far and write `result.json`; for `install` also the `phase` running at the end."
+
+  post_conditions:
+    - "No execution container exists and the locks are released."
+    - "The output and logs written so far remain readable."

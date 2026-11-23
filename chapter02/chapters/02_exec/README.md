@@ -1,0 +1,9 @@
+# Exec
+
+How an agent framework executes work it does not fully trust. The chapter starts with the process runtime: how a developer-defined flow is enforced around a language model.
+
+- `posts/01-deterministic-flows/` first post: how `agent-graph` keeps business logic in a LangGraph flow the developer defined, and what the model may still decide. Single post (`type: dev`) with runnable code: `code_package: agent-graph`. All six chapter 1 and chapter 2 posts share the single tag `ch01-ch02/publication`. It is not cut yet. The posts carry that value in `code_tag`.
+- `posts/02-disposable-exec/` second post: how `agent-exec` runs code and tool calls in one disposable container per execution (fixed settings, no network by default, closed mount list, authorization plugin, written record). Single post (`type: dev`) with runnable code: `code_package: agent-exec`, slug `exec-disposable-containers`. It shares the single tag `ch01-ch02/publication` with the other five chapter 1 and chapter 2 posts. Islands: `exec-arch` (block diagram) and a sequence diagram mounted at `exec-life-seq`, served by the `exec-arch` bundle.
+- `posts/03-ngspice/` third post: how ngspice runs as a declared tool in `agent-exec` (disposable container, `spice-safe` input policy, written record), shown on a DC-DC boost converter flow. Single post (`type: dev`) with runnable code: `code_package: agent-exec`, slug `exec-ngspice`. It shares the single tag `ch01-ch02/publication` with the other five chapter 1 and chapter 2 posts. Island: `ngspice`.
+- `islands/build.mjs` bundles every `posts/*/islands/src/*.entry.jsx` into `posts/*/islands/dist/<name>.js`.
+- Build the islands: `npm install`, then `npm run build:islands`. The `dist/` bundles are built and committed with `src` (post 01: `det-arch.js`, `det-attempt.js`; post 02: `exec-arch.js` only, the sequence mount `exec-life-seq` comes from the same bundle; post 03: `ngspice.js`).

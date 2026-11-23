@@ -1,0 +1,22 @@
+name: ngspice
+kind: tool
+image_id: sha256:0000000000000000000000000000000000000000000000000000000000000000   # replaced after the build with the ID of exec-ngspice:1
+ref: exec-ngspice:1
+entry: fixed
+argv: [ngspice-run, "{out}", "{in.netlist}"]
+inputs:
+  netlist:
+    path_under: [src/, .input/, .output/exec/]
+    glob: "*.cir"
+  include:
+    path_under: [src/, .input/]
+    glob: "*.lib"
+    multiple: true
+    optional: true
+input_policy: spice-safe
+limits:
+  mem: 512m
+  cpus: 1
+  pids: 128
+  timeout_s: 600
+  out_max: 256m

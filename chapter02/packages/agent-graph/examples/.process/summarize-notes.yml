@@ -1,0 +1,71 @@
+apiVersion: agent-graph/v1
+id: summarize-notes
+title: Summarize meeting notes
+description: >
+  Counts the lines of the meeting notes in .input/notes/, lets Claude write a short summary that
+  follows templates/digest.md, and asks you to review it before the run ends.
+
+input:
+  source:
+    - {name: Source, path: "notes/*.md", required: true}
+  output-template-ref:
+    - {name: Template, path: "templates/digest.md", required: true}
+
+output:
+  target:
+    - {name: Report, path: "summary.md", template: Template, checks: [non_empty], required: true}
+
+runtime:
+  snippets: [process-rules]
+  skills: [summarize]
+  max_skills: 3
+  tools: [Read, Write]
+  retry: 2
+  timeout: 10m
+  budgets: {max_steps: 50, max_llm_calls: 20, timeout: 60m}
+  work_products: archive
+
+steps:
+  - id: 1
+    name: extract
+    type: procedure
+    reads: ["input.source[Source]"]
+    produces: [{name: facts, file: facts.json}]
+    instruction: |
+      COLLECT("lines", "all") THEN STORE(facts)
+    run: "python .process/scripts/count_lines.py {input.Source} {work}"
+    success: |
+      PRINT('STEP 1: DONE')
+
+  - id: 2
+    name: write-summary
+    type: cognitive
+    reads: ["facts", "input.output-template-ref[Template]", "review_feedback?"]
+    produces: ["output.target[Report]"]
+    instruction: |
+      INSTANTIATE("Template", "with facts")
+      WRITE(output.target[Report], "summary per Template")
+    snippets: [step-notes]
+    budget: 40k
+    success: |
+      PRINT('STEP 2: DONE')
+    failure: |
+      STOP
+      PRINT('<ERROR_DETAILS>')
+
+  - id: 3
+    name: review
+    type: human
+    reads: ["output.target[Report]"]
+    instruction: |
+      REQUEST_REVIEW("summary", "against Template")
+    success: |
+      PRINT('STEP 3: DONE')
+
+transitions:
+  entry: extract
+  edges:
+    - {from: extract, to: write-summary, when: done}
+    - {from: write-summary, to: review, when: done}
+    - {from: review, to: END, when: hil_ok}
+    - {from: review, to: write-summary, when: hil_nok}

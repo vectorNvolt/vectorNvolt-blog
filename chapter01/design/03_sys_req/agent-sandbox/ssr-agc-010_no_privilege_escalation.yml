@@ -1,0 +1,16 @@
+SSR-AGC-010:
+  title: "Forbid privilege escalation inside the agent container"
+  kind: "structural"
+  usecase_step_ref: "USC-002: steps 4, 9"
+
+  statement: "The system shall hold every agent container so that no process in it can gain privilege through the execution of another program."
+
+  condition: "For every agent container, from its creation until it is removed."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must show the no-new-privileges setting active on the container, read from the inspected container at IP-DOCKER-ENGINE and not from the creation request."
+    - "Must show the setting fixed at creation and not changeable from inside the container."
+    - "Must show the setting active together with the capability allowlist of SSR-AGC-009, so that a capability removed from the container is not regained through a set-user-id, set-group-id or file-capability program."

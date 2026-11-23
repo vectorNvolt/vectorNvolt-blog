@@ -1,0 +1,20 @@
+SFR-AGG-015:
+  title: "Check the products of a node before it is done"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 8"
+
+  statement: "The system shall report a node as done only when every product it declares exists and matches its schema."
+
+  condition: "When a node finishes an attempt."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must check each declared product in .agent/<runID>/work/<nodeID>/ at IP-AGENT-RUN-WORKSPACE against presence and schema, with a schema validator from the runtime."
+    - "Must, on a mismatch, report the node as failed with kind schema and a retryable reason that becomes the node's next turn (SFR-AGG-026)."
+    - "Must give a later node only the products it reads, not the whole work folder."
+
+  post_conditions:
+    - "No downstream node read an unchecked product."
+    - "A failed check names the product and the reason."

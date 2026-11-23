@@ -1,0 +1,21 @@
+SFR-AGE-018:
+  title: "List the execution profiles and their state"
+  kind: "functional"
+  usecase_step_ref: "USC-005: alternative alt-3"
+
+  statement: "The system shall list the available execution profiles and their state on request."
+
+  condition: "When the caller invokes the subcommand `list`, with or without the JSON option."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must report per profile name, kind, version, image id, presence of the tarball, whether the tarball's image id matches the profile, whether the image is loaded and whether the profile is valid (the provenance check of `tool.json` is TBD)."
+    - "Must read the tarball's manifest without loading the image."
+    - "Must create no container and no execution folder."
+
+  post_conditions:
+    - "The caller holds the state of every profile, in JSON form on request."
+    - "The workspace and the engine are unchanged."

@@ -1,0 +1,15 @@
+SSR-AGG-016:
+  title: "Hold the run open until completion or request"
+  kind: "structural"
+  usecase_step_ref: "USC-008: notes"
+
+  statement: "The system shall end a run only on completion, on the developer's explicit quit or by suspension."
+
+  condition: "For every run, from the start to the exit."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+
+  constraints:
+    - "Must show that no error ends the run on its own: every exception except intent rejection (err-3), interruption (err-16) a usage error at step 1 (err-17, exit code 1, no S7) and no free run identifier at step 3 (err-19, exit code 1, no S7; no run folder exists yet) goes to resolution (SFR-AGG-033)."
+    - "Must show that a quit in process agreement or resolution is explicit, never inferred."

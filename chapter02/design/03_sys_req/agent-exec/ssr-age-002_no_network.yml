@@ -1,0 +1,17 @@
+SSR-AGE-002:
+  title: "Give no network to an execution container except the fetch phase"
+  kind: "structural"
+  usecase_step_ref: "USC-005: steps 6, 8 (alternative alt-2)"
+
+  statement: "The system shall give no network to any execution container except the fetch container of an install."
+
+  condition: "For every execution container, from creation until it is removed."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+
+  constraints:
+    - "Must show the network mode `none` on the inspected container at IP-INCONTAINER-ENGINE for `run`, `build` and the install container."
+    - "Must show the fetch container with the host network mode only, so the host-side network controls (USS-004) still filter it, and only while the fetch phase runs."
+    - "Must show no published port and no link to another container."
+    - "Resolved 2026-11-12: under network mode `none` the in-container engine (runc) cannot create the network namespace without `NET_ADMIN` on the agent container (`operation not permitted` at container init). `NET_ADMIN` is therefore on the agent container allowlist (SSR-AGC-009); the execution container itself keeps all capabilities dropped."

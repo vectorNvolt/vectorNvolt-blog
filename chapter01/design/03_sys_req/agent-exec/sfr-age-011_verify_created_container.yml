@@ -1,0 +1,19 @@
+SFR-AGE-011:
+  title: "Verify the created container before starting it"
+  kind: "functional"
+  usecase_step_ref: "USC-005: step 7 (exception exc-9)"
+
+  statement: "The system shall start an execution only after the inspected container matches the fixed settings."
+
+  condition: "When the container is created and before it is started."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+
+  constraints:
+    - "Must verify at IP-INCONTAINER-ENGINE on the inspected container, not on the tool's own request: capabilities, no-new-privileges, read-only root file system, user, network, exact mount allowlist, image id, limits, auto-remove and environment."
+    - "Must on a mismatch remove the container (install: both), never start the command, and exit with status 125, cause `verify`."
+
+  post_conditions:
+    - "No container with a deviating setting was started."
+    - "A matching container proceeds to start."

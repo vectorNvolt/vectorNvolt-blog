@@ -1,0 +1,16 @@
+SSR-AGG-003:
+  title: "Hold one static state machine for every process"
+  kind: "structural"
+  usecase_step_ref: "USC-008: notes"
+
+  statement: "The system shall run every process on the same static state machine and execution engine."
+
+  condition: "For every run, from process agreement to the report."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show that two different process files run on the unchanged static states and engine and differ only in the compiled dynamic state machine."
+    - "Must show that the static state machine has no process-specific code paths: S1-S8 and E1-E7 are unchanged for every process (S2, S3 and S5 read process content by design, USC-008 steps 3-6)."

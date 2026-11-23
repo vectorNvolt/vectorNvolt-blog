@@ -1,0 +1,16 @@
+SSR-AGG-001:
+  title: "Hold the gateway as the only owner of the terminal"
+  kind: "structural"
+  usecase_step_ref: "USC-008: steps 2, 3, 5, 6, 11, 14"
+
+  statement: "The system shall hold the gateway as the only reader and writer of the terminal."
+
+  condition: "For every run, from the opening of the gateway session to the exit."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+
+  constraints:
+    - "Must show that no state, node or Claude instance reads or writes the terminal directly: all questions, approvals, progress lines and notices pass the gateway at IP-CLI-AGENT-GRAPH-RUN."
+    - "Must show one conversation at a time, each message tagged with its source state or node, and the transcript logged to .agent/<runID>/gateway.jsonl."
+    - "Must show that control sequences in text received from a Claude instance are neutralised (shown as visible markers) before they are printed, and that a node's own output cannot reach the terminal except through the gateway."   # not in USC-008 (tech-notes draft 1 / proposed): control-sequence neutralising

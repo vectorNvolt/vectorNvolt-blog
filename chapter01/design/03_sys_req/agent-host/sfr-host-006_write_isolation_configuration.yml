@@ -1,0 +1,12 @@
+SFR-HOST-006:
+  title: "WITHDRAWN 2026-11-22: Write the isolation configuration into agent-host"
+  kind: "functional"
+  status: "withdrawn"
+  withdrawn: "withdrawn 2026-11-22: WSL2 path removed"
+  usecase_step_ref: "USC-001: withdrawn (WSL removed)"
+  # The /etc/wsl.conf settings (automount off, interop off, appendWindowsPath off, default user,
+  # systemd=true) and the isolation units (/mnt/wsl, WSLInterop, dxg) are gone: the VM has no host mounts and
+  # no host interop by construction (foundation contract item 7), and systemd is part of the stock image.
+  # NOTE: the code comments in packages/agent-host (config.go HostName, s04_set_hostname.go) still cite
+  # "SFR-HOST-006" for the hostname step; that requirement is now SFR-HOST-015.
+  superseded_by: "SFR-HOST-015 (hostname only)"

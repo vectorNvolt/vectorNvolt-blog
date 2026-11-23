@@ -1,0 +1,21 @@
+SFR-AGT-009:
+  title: "Apply the input policy before anything is created"
+  kind: "functional"
+  usecase_step_ref: "USC-009: step 5 (exception exc-9)"
+
+  statement: "The system shall check the inputs of a tool run with the profile's input policy and refuse the run when an input fails it."
+
+  condition: "When a tool-run call has passed validation and its profile names an input policy."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+
+  constraints:
+    - "Must run the policy on the source files at IP-AGENT-RUN-WORKSPACE after validation and before the execution folder is created."
+    - "Must reject, for the netlist policy, a control block that starts a shell or sources a file, and every include that does not resolve to a declared include input."   # open: resolution of a relative include
+    - "Must exit 125, cause `policy`, with the reason at IP-EXEC-TOOL-CLI, which SSR-AGE-012 holds."
+
+  post_conditions:
+    - "No execution folder, result record or container exists for a refused run."
+    - "The agent can correct the input or declare the include and call again."

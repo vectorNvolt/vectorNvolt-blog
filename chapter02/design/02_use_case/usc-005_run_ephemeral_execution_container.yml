@@ -1,0 +1,378 @@
+# ==============================================================================
+# USC-005 — derived from USS-005 (design/01_user_story/uss-005_ephemeral_execution_container.md)
+# Template: tmpl_usecase_v2.yml (structure as USC-008)
+# Interaction points and channels: IP-AGENT-RUN-WORKSPACE and IP-EXECUTION-CONTAINER
+# are defined in design/00_system_boundary/interaction_points.yml (USS-008 section).
+# The other IPs below (IP-EXEC-TOOL-CLI, IP-INCONTAINER-ENGINE, IP-ENGINE-AUTHZ,
+# IP-EXEC-TOOLPOOL; section "USS-005") are defined there as `# proposed`.
+# `# TBD`      = undefined in USS-005.
+# `# proposed` = defined here, not in USS-005 (or not yet in interaction_points.yml).
+# `# open`     = open item of USS-005 that this use case cannot resolve.
+# `requirement_refs` are omitted: the requirements are derived after this use case
+# is agreed.
+# Scope: the main flow is the kind `run` (code). `build` and `install` differ only in
+# the points listed in alt-1 and alt-2; `tool` (USS-009) is USC-009, `list` and
+# `sweep` are alt-3 and alt-4.
+# Step mapping: steps 1-10 are the steps 1-10 of "Interaction" in USS-005.
+# Status of USS-005: implemented in `packages/agent-exec` (tool, plugin and `agent-init`; tested
+# against a fake engine or fake starter only); `Dockerfile.agent` installs all three binaries from
+# `bin/`. Real-dockerd verification of the acceptance criteria is open.
+# ==============================================================================
+
+USC-005:
+  title: "Run, build or install application code in a fresh ephemeral execution container"
+  summary: "A caller (the agent-graph procedure runner through `ContainerExec`, or the agent through a guarded Bash command) runs the Go executable `run_ephemeral_container` inside the agent container with a subcommand (`run`, `build` or `install`) and a profile name. The tool validates the request against the operator-supplied profile, stages the inputs, creates one throwaway container per execution in the in-container Docker daemon with fixed settings (uid 1001, no capabilities, read-only root file system, no network except the fetch phase of `install`, only the mounts of the kind), checks the created container, starts it, streams its output, enforces timeout and output cap, removes the container and writes the logs and `result.json` to `/workspace/.output/exec/<execId>/`. The tool exits with the exit code of the execution. The in-container daemon accepts only requests that match the fixed settings (engine authorization plugin), also when the agent bypasses the tool."
+
+  actors:
+    primary: "Caller (agent-graph procedure runner through `ContainerExec`, or the agent through a guarded Bash command, USS-009 and USC-009; non-root user `agent`, uid 1001)"
+    supporting:
+      - "Execution tool `run_ephemeral_container` (Go, static binary in the agent image, run as uid 1001, member of the group `docker`)"
+      - "Execution profile (`/workspace/.tools/<name>/profile.yml`, operator-supplied; the caller selects it by name only)"
+      - "Operator (supplies profiles and images from the tool pool on agent-host; copies wheels to `.packages/`)"
+      - "In-container Docker daemon (`dockerd`, root, started by `agent-init`; data root on a 2g `tmpfs`; default runtime `runc` inside gVisor)"
+      - "Engine authorization plugin `ephemeral-authz` (non-root user `authz`, compiled-in default-deny policy)"
+      - "`agent-init` (root; starts the plugin and `dockerd` under `tini`, restarts the plugin)"
+      - "Agent container `agent-<agentID>` (gVisor sandbox, USS-002; image USS-003)"
+      - "Ephemeral container `ephemeral-<execId>` (install: also `ephemeral-<execId>-fetch`)"
+
+  interaction_points:
+    - ip_ref: "IP-EXEC-TOOL-CLI"   # proposed
+      direction: "inbound"
+      type: "subprocess_cli"
+      boundary: "Caller (uid 1001) -> `run_ephemeral_container` in `agent-<agentID>`"
+      transport: "POSIX process execution; arguments in, stdout and stderr streamed back, exit code"
+      role: "primary entry: subcommands `run`, `build`, `install`, `list [--json]`, `sweep --label <k>=<v>`, `tool` (kind `tool`, USS-009, USC-009 steps 4-6); stdout and stderr carry the streamed command output, the first stderr line is `run_ephemeral_container: exec_dir=<path>`, tool diagnostics are prefixed `run_ephemeral_container:`; the exit code is the execution's (see exception flows)"
+    - ip_ref: "IP-EXECUTION-CONTAINER"   # USS-005, defined in the USS-008 section of interaction_points.yml, `# proposed` there
+      direction: "outbound"
+      type: "subprocess_cli"
+      boundary: "`agent_graph` -> `run_ephemeral_container` -> in-container Docker engine -> ephemeral execution container"
+      transport: "Child process of `ContainerExec` (`packages/agent-graph/src/agent_graph/services/container.py`)"   # open: only the process YAML schema beyond `isolate` and `profile` (`args`, `manifests`, `inputs`); the interface exists (`ContainerExec.run_isolated`, `run_ephemeral_container run`) and the tool expands `{in.<name>}`
+      role: "the agent-graph side of IP-EXEC-TOOL-CLI: every `procedure` step runs through the tool"
+    - ip_ref: "IP-INCONTAINER-ENGINE"   # proposed
+      direction: "outbound"
+      type: "http_unix_socket"
+      boundary: "`run_ephemeral_container` (uid 1001) -> `/var/run/docker.sock` (group `docker`, SSR-AGC-011) -> `dockerd` in `agent-<agentID>`"
+      transport: "Docker Engine API over the Unix socket; every request passes the engine authorization plugin first"
+      role: "operations: `GET /_ping`, `/version`, `/info`; `GET /images/json`, `/images/<id>/json`, `POST /images/load`; `POST /containers/create`, `GET /containers/json`, `/containers/<id>/json`; `start`, `attach`, `logs`, `wait`, `kill`, `DELETE /containers/<id>`; `GET /events` (OOM detection). Everything else is denied (exec, archive, build, pull, push, networks, volumes, ...)"
+    - ip_ref: "IP-ENGINE-AUTHZ"   # proposed
+      direction: "internal"
+      type: "http_unix_socket"
+      boundary: "`dockerd` (root) -> `/run/docker/plugins/ephemeral-authz.sock` (root, 0600, created by `agent-init`) -> `ephemeral-authz` (user `authz`)"
+      transport: "Docker legacy authorization plugin protocol (`AuthZReq`, `AuthZRes`)"
+      role: "allow or deny every engine API request by a compiled-in default-deny policy (endpoint allowlist and create invariants); reads nothing from the workspace; not reachable by uid 1001"
+    - ip_ref: "IP-AGENT-RUN-WORKSPACE"
+      direction: "outbound"
+      type: "filesystem"
+      boundary: "`run_ephemeral_container` (uid 1001) -> `/workspace` in the container (bind mount of `Workspace-Agents/<agentID>`, USS-002)"
+      transport: "POSIX filesystem calls (`openat2` with `RESOLVE_BENEATH`, no symlink out of `/workspace`)"
+      role: "reads `.tools/*/profile.yml`, `.tools/<name>/image.tar`, `src/`, the `--in` paths and the manifests; takes `flock` on env dirs and `build/`; creates `.output/exec/<execId>/` (`in/`, `out/`, `dl/`, `meta.json`, `result.json`, `stdout.log`, `stderr.log`); the ephemeral container sees only the mounts of its kind"
+    - ip_ref: "IP-EXEC-TOOLPOOL"   # proposed
+      direction: "inbound"
+      type: "filesystem"
+      boundary: "Operator on agent-host: tool pool (`TBD`, candidate `/var/lib/agent-sandbox/tool-pool/<name>/<version>/`) -> `Workspace-Agents/<agentID>/.tools/<name>/`"
+      transport: "Manual copy of a profile folder (`profile.yml`, `image.tar`, `tool.json`), like process definitions into `.process/` (USC-008 step 1); wheels likewise into `.packages/`"   # open: tool pool location and how images get into it
+      role: "supplies profiles and exec images; no image or profile is baked into the agent image"
+
+  preconditions:
+    - "USC-002 is complete: `agent-<agentID>` exists, is running and is released at the gate"
+    - "USC-003 delivered the agent image with `/usr/local/bin/run_ephemeral_container`, `/usr/local/libexec/ephemeral-authz`, `/usr/local/sbin/agent-init`, the user `authz` and `/etc/docker/daemon.json` (no bridge, no iptables, `authorization-plugins: [ephemeral-authz]`, data root on the 2g tmpfs); `tini` -> `agent-init` runs the plugin and `dockerd`"   # open: not yet run against a real `dockerd` (USS-005 status)
+    - "The in-container daemon is running, its socket `/var/run/docker.sock` is reachable by uid 1001 (group `docker`, SSR-AGC-011) and the engine authorization plugin is running (otherwise the daemon fails every request)"
+    - "`/workspace/.tools/<name>/` holds `profile.yml` (valid: schema and ceilings, known kind) and `image.tar` (or the image is already loaded); the tool neither pulls nor builds images"
+    - "agent-host root created `build/`, `.venv`, `.npm-env`, `.conda-env` and `.packages/` (empty, owned by uid 1001) with the other workspace folders (USS-002); the tool never creates them"
+    - "For `build` and `run` with `requires_build: true`: the order `install` -> `build` -> `run` was followed; for `install`: the target env dir exists and each `--manifest` path exists under `src/`"
+    - "The caller's `--exec-id`, if given, matches `[a-z0-9][a-z0-9-]{0,63}` and its folder does not exist"
+
+  main_flow:
+    - step: 1
+      actor: "Caller"
+      action:
+        - "Runs `run_ephemeral_container run <profile> [--exec-id <name>] [--in <name>=<path>]... [--label <k>=<v>]... [--timeout <s>] -- <command> [args...]`, e.g. `run_ephemeral_container run python --exec-id e3 --in data=/workspace/.input/measurements.csv -- python /workspace/src/analyse.py /workspace/.output/exec/e3/in/data`"
+        - "Supplies only data: the command, input files, timeout, labels, an exec ID name. No image, mount or flag argument exists"
+      interaction_point:
+        ip_ref: "IP-EXEC-TOOL-CLI"
+        channel: "CHAN-SHELL-EXEC"   # proposed
+        object_flow: "command invocation `run_ephemeral_container run <profile> ... -- <command>` — Caller -> Execution tool"
+    - step: 2
+      actor: "Execution tool (validate)"
+      action:
+        - "Parses the arguments and loads the profiles from `/workspace/.tools/*/profile.yml` on every call (no cache); rejects unknown fields and values above the compiled-in ceilings"
+        - "Validates the request: subcommand matches the profile `kind`; `--exec-id` pattern and not existing; each `--in` against the profile `inputs` (path under `/workspace`, allowed `path_under`, `glob`, `multiple`, no duplicate basename); `--timeout` not above the profile `timeout_s`"
+        - "Resolves every path without following symlinks out of `/workspace`"
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channel: "CHAN-FS-RUN-WORKSPACE"
+        object_flow: "`profile.yml`, `--in` paths read and resolved — Execution tool <-> /workspace"
+    - step: 3
+      actor: "Execution tool (prepare)"
+      action:
+        - "Checks that the daemon is reachable (ping); then removes stale containers: every container labelled `ephemeral.exec` whose `ephemeral.pid` no longer exists"
+        - "Checks the folders agent-host root should have created (`build/`, env dir, `.packages/`; for a code profile with `requires_build: true` `build/` not empty); creates none of them"
+        - "Takes the locks (exclusive `flock` on a rw env dir or `build/`, shared on a ro one) and a slot (summed limits within the agent container bounds, SSR-AGC-012); refuses with `busy` rather than waiting beyond the bound (`TBD`)"
+        - "Last action of the step: creates `/workspace/.output/exec/<execId>/` with `in/`, `out/` (uid 1001) and prints `run_ephemeral_container: exec_dir=<path>` as the first stderr line; all checks before this action leave no exec dir and no `result.json`"
+      interaction_point:
+        ip_ref: "IP-INCONTAINER-ENGINE"
+        channel: "CHAN-ENGINE-API"   # proposed
+        object_flow: "`GET /_ping`, `GET /containers/json` (filter `ephemeral.exec`), `DELETE /containers/<id>` for stale ones — Execution tool <-> `dockerd`"
+    - step: 4
+      actor: "Execution tool (stage inputs)"
+      action:
+        - "A path under `src/` (or `build/` when mounted) is used in place (already mounted, not copied); any other path is copied into `in/<name>` (single) or `in/<name>/<basename>` (`multiple`); staging never adds a mount"
+        - "Expands `{in.<name>}` to the staged path, the list of staged paths or the in-place path; records `inputs: [{name, source, path, sha256}]` for `meta.json`"
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channel: "CHAN-FS-RUN-WORKSPACE"
+        object_flow: "input files read (e.g. `.input/`, `.agent/<run>/work/<node>/`, `.output/exec/<prev>/out/`), copies written to `.output/exec/<execId>/in/` — Execution tool <-> /workspace"
+    - step: 5
+      actor: "Execution tool (ensure image)"
+      action:
+        - "Checks `GET /images/<image_id>/json`; if the image is absent runs `docker load` of `/workspace/.tools/<name>/image.tar` (the data root is a tmpfs, so images are reloaded after every agent container restart); `GET /images/<image_id>/json` must then succeed"
+        - "Never pulls and never builds"
+      interaction_point:
+        ip_ref: "IP-INCONTAINER-ENGINE"
+        channel: "CHAN-ENGINE-API"
+        object_flow: "`GET /images/<image_id>/json`, `POST /images/load` (tarball) — Execution tool <-> `dockerd`; each request authorized by the plugin (IP-ENGINE-AUTHZ)"
+    - step: 6
+      actor: "Execution tool and engine authorization plugin"
+      action:
+        - "Creates (does not start) `ephemeral-<execId>` with `Image: <image_id>` and the fixed settings of the kind: user `1001:1001`, `CapDrop ALL`, `no-new-privileges`, default seccomp, read-only root file system, `NetworkMode none`, private namespaces, bounded `Memory`/`NanoCpus`/`PidsLimit`, `AutoRemove` true, tmpfs `/work`, `/tmp`, `/home/run` (`HOME`) with sizes, the mount allowlist of the kind (`src/` ro, env dirs ro, `build/` if declared ro, own `in/` ro, own `out/` rw), labels `ephemeral.exec=<execId>`, `ephemeral.pid=<tool PID>` plus the caller's, environment `PATH`, `HOME=/home/run`, `LANG`, `TZ`, `OUT`, `IN` plus the profile `env`"
+        - "`dockerd` forwards the request to `ephemeral-authz`, which allows it only when the body matches every create invariant (user, privilege, security options, network, namespaces, forbidden fields, runtime, limits, name and label, `AutoRemove`, mount sources resolving without a symlink component)"
+      interaction_point:
+        ip_ref: "IP-INCONTAINER-ENGINE"
+        channel: "CHAN-ENGINE-API"
+        object_flow: "`POST /containers/create` with `Config`/`HostConfig` — Execution tool -> `dockerd` -> plugin (IP-ENGINE-AUTHZ, `AuthZReq`/`AuthZRes`: allow or deny)"
+    - step: 7
+      actor: "Execution tool (verify)"
+      action:
+        - "Inspects the created container and verifies on the inspected container, not on its own request: capabilities, no-new-privileges, read-only root file system, user `1001:1001`, network, exact mount allowlist, `Image` equal to `image_id`, limits, `AutoRemove`, environment (only the image's `ENV` plus the variables the tool sets)"
+        - "A mismatch removes the container and ends the call with exit 125, cause `verify` (exc-9). The verify step catches faulty settings and profile mismatches; the plugin, not this check, is the hard backstop against the agent"
+      interaction_point:
+        ip_ref: "IP-INCONTAINER-ENGINE"
+        channel: "CHAN-ENGINE-API"
+        object_flow: "`GET /containers/<id>/json` — Execution tool <-> `dockerd`"
+    - step: 8
+      actor: "Execution tool and ephemeral container"
+      action:
+        - "Writes `meta.json` once, before start, and never changes it (request: profile, kind, argv, labels; inputs; inspected settings: mounts, caps, limits; `image_id`)"
+        - "Subscribes to `GET /events` filtered on the container (OOM detection, the container may be gone after exit because of `AutoRemove`), then starts the container; the command runs with `/work` as working directory, stdin closed, no network"
+        - "Streams stdout and stderr to its own stdout and stderr and into `stdout.log` and `stderr.log`; watches the timeout (`--timeout`, default and ceiling the profile `timeout_s`) and `out_max` on `out/`"
+        - "The code writes only `$OUT` (`/workspace/.output/exec/<execId>/out`), `/work`, `/tmp` and `HOME` (all three size-limited `tmpfs`, scratch, lost at the end); `src/`, env dirs, `build/` and `in/` are read-only; `.input/`, `.process/`, `.tools/`, `.agent/`, other exec dirs, `.git`, the logs, `meta.json` and `result.json` are not visible"
+      interaction_point:
+        ip_ref: "IP-INCONTAINER-ENGINE"
+        channel: "CHAN-ENGINE-API"
+        object_flow: "`POST /containers/<id>/start` (empty body), `POST /containers/<id>/attach` or `GET /containers/<id>/logs`, `GET /events` — Execution tool <-> `dockerd`; output stream (stdout, stderr) back"
+    - step: 9
+      actor: "Ephemeral container"
+      action: "The command ends; the engine reports the exit code (`POST /containers/<id>/wait`) and removes the container (`AutoRemove`)."
+      interaction_point:
+        ip_ref: "IP-INCONTAINER-ENGINE"
+        channel: "CHAN-ENGINE-API"
+        object_flow: "`POST /containers/<id>/wait` result (exit code), `die`/`destroy` events — `dockerd` -> Execution tool"
+    - step: 10
+      actor: "Execution tool (finish)"
+      action:
+        - "Makes sure the container is removed (removes it itself if still present), releases the locks, writes `result.json` `{exit, cause: ok|exit, exec_dir, image_id, start, end}` and exits with the exit code of the command"
+        - "The exec dir is always kept: `meta.json`, `result.json`, `stdout.log`, `stderr.log`, `in/`, `out/`"
+        - "The caller reads `result.json` (authoritative: a command's own exit code can equal 124, 125, 130 or 137; only `cause` tells them apart) and the products in `out/`; agent-graph copies products from `out/` into the step's work dir"
+      interaction_point:
+        ip_ref: "IP-EXEC-TOOL-CLI"
+        channel: "CHAN-SHELL-EXEC"
+        object_flow: "exit code, streamed output — Execution tool -> Caller; `result.json` and `out/` in `/workspace/.output/exec/<execId>/` (IP-AGENT-RUN-WORKSPACE)"
+
+  alternative_flows:
+    - id: "alt-1"
+      at_step: 1
+      condition: "Subcommand `build` (profile kind `build`)"
+      behavior: "Same flow with `run_ephemeral_container build <profile> ... [-- <driver args>]`. The container runs the fixed driver of the profile (`argv`, e.g. `make`) plus the caller's driver args, network `none` (offline), `src/` ro, env dirs ro, `in/` ro, `build/` rw, `out/` rw, `tmp_exec` expected true. `build/` is the only way `build/` gets written; the tool takes an exclusive lock on `build/`. The driver's exit code is the tool's exit code; `out_max` also covers `build/`."
+    - id: "alt-2"
+      at_step: 1
+      condition: "Subcommand `install` (profile kind `install`)"
+      behavior: "The caller passes `--manifest <path>...` (each under `src/`, at least one) and no `--in` or free manager args. In step 6 the tool creates both containers before starting either: `ephemeral-<execId>-fetch` (network `host`, so the host-side controls of USS-004 still filter it; `src/` ro, `.packages/` ro, `dl/` rw, `out/` rw; `fetch_argv` with no-execution flags, e.g. `pip download --only-binary=:all:`) and `ephemeral-<execId>` (network `none`; `src/` ro, `.packages/` ro, `dl/` ro, target env dir rw, other env dirs ro, `out/` rw; `argv` offline from `dl/` and `.packages/`, e.g. `install-into-venv`, which creates the venv if `pyvenv.cfg` is missing). Step 7 verifies both. In step 8 the tool starts the fetch container, and when it ends with exit 0 starts the install container; one wall-clock limit covers both phases. The tool builds both argvs from the profile plus the manifests (`-r <manifest>` for pip; the form for npm and conda is `TBD`). No package code is executed in either phase. Step 10 removes both containers; `result.json` also records `phase: fetch|install`, the phase running when the execution ended."   # open: --manifest form for npm and conda
+    - id: "alt-3"
+      at_step: 1
+      condition: "Subcommand `list [--json]`"
+      behavior: "The tool reads `.tools/` and reports, per profile: name, kind, version (from `tool.json`), `image_id`, whether `image.tar` is present, whether the tarball's image ID matches the profile (read from the tarball's manifest, without loading it), whether the image is loaded, and whether the profile is valid (schema and ceilings). `--json` gives the same as JSON. No container is created and no exec dir. Used by the agent-graph static check (USC-008 step 4) and by the agent (USS-009; for tool profiles also input names and param schema, USC-009 alt-4)."
+    - id: "alt-4"
+      at_step: 1
+      condition: "Subcommand `sweep --label <k>=<v>`"
+      behavior: "The tool pings the engine, then removes only containers that carry that label (force-removes each: kills it if running, then removes it); nothing else is touched. agent-graph runs it at start of a run, and the agent may run it through guarded Bash (USS-009, USC-009 alt-5) (after a `kill -9` of the tool a container may remain; the next tool start also removes stale `ephemeral.exec` containers, step 3)."
+    - id: "alt-5"
+      at_step: 4
+      condition: "`--in` with `multiple: true`, or a path already under `src/` or a mounted `build/`"
+      behavior: "`multiple`: the name may be repeated, each file is staged as `in/<name>/<basename>`; `{in.<name>}` expands to the list of staged paths. In place: a path under `src/` (or a mounted `build/`) is not copied and `{in.<name>}` expands to that path. Either way `meta.json` lists every input with name, source, path and sha256."
+    - id: "alt-6"
+      at_step: 8
+      condition: "The caller sends SIGTERM or SIGINT to the tool, or the timeout is reached, or `out_max` is exceeded, or the container is killed for memory"
+      behavior: "Cancel: the tool kills the running container (install: the running phase's), removes it (install: both containers) and exits 130, cause `cancel`. Timeout: the same, exit 124, cause `timeout`. `out/` above `out_max`: kill and remove, exit 137, cause `out_cap`. OOM (seen on the `oom` event): remove, exit 137, cause `oom`. Output written so far is kept; `result.json` is written (install: with `phase`); the flow ends at step 10."
+    - id: "alt-7"
+      at_step: 3
+      condition: "The profile is of kind `code` with `requires_build: true`"
+      behavior: "The tool checks that `build/` exists and is not empty before creating the container; `build/` is then mounted ro and `PATH` comes from the profile `env` (e.g. `/workspace/build/bin`). `run` never builds implicitly. If `build/` is missing or empty see exc-6."
+    - id: "alt-8"
+      at_step: 6
+      condition: "The agent bypasses the tool and calls the engine directly as uid 1001 (e.g. `docker run --privileged -v /:/host`, `docker run -u 0`, `docker exec`, `docker cp`, `docker pull`)"
+      behavior: "The request reaches `dockerd` through the socket (group `docker`) and is forwarded to the plugin, which denies it (endpoint not on the allowlist, or create body violating an invariant, or no parsable body). No container starts. Any container the engine can start runs as uid 1001 without capabilities and without host namespaces, so it can never do more than the agent user itself."
+
+  # Exit codes and causes (USS-005 "Exit codes and causes"): `result.json` is always
+  # written once the exec dir was created (last action of step 3; exc-5 and later).
+  # Errors before the exec dir exists (exc-1, exc-2, exc-3, exc-6, exc-10) create
+  # nothing and write no `result.json`. Rollback: none for outputs; a normal run removes only the
+  # container it created and releases its locks; the exec dir is always kept.
+  exception_flows:
+    - id: "exc-1"
+      at_step: 2
+      condition: "Missing or invalid arguments, unknown subcommand or profile, subcommand not matching the profile kind, `--timeout` above `timeout_s`, `--exec-id` invalid or its folder exists, `--in` outside `/workspace`, unreadable, not matching the profile or with a duplicate basename for a `multiple` name, `install` without `--manifest` or with a manifest outside `src/` or missing, `--manifest` or free manager args on another kind, `--in` on `install`"
+      system_reaction: "Nothing is created. The tool exits 125, cause `usage`, with a `run_ephemeral_container:` diagnostic on stderr."
+      exit_code: 125
+      cause: "usage"
+      interaction_point:
+        ip_ref: "IP-EXEC-TOOL-CLI"
+        channel: "CHAN-SHELL-EXEC"
+        object_flow: "diagnostic on stderr, exit 125 — Execution tool -> Caller"
+    - id: "exc-2"
+      at_step: 3
+      condition: "The in-container daemon is unreachable (engine socket missing or not reachable), or the plugin is not running and the engine fails every request"
+      system_reaction: "Exit 125, cause `setup` (or `denied`, to verify); nothing is started, no exec dir is created and no `result.json` is written. `agent-init` restarts the plugin (the engine fails closed meanwhile, to verify with the pinned engine version)."   # open: fail-closed behaviour of the pinned engine
+      exit_code: 125
+      cause: "setup"
+      interaction_point:
+        ip_ref: "IP-INCONTAINER-ENGINE"
+        channel: "CHAN-ENGINE-API"
+        object_flow: "connection error or refused requests — `dockerd` -> Execution tool"
+    - id: "exc-3"
+      at_step: 2
+      condition: "The profile is invalid (unknown field, value above a ceiling)"
+      system_reaction: "Exit 125, cause `setup`; nothing is started, no exec dir is created and no `result.json` is written. A changed profile cannot widen what an ephemeral container sees (the kind model is compiled into the tool)."
+      exit_code: 125
+      cause: "setup"
+      interaction_point:
+        ip_ref: "IP-EXEC-TOOL-CLI"
+        channel: "CHAN-SHELL-EXEC"
+        object_flow: "diagnostic on stderr naming the field, exit 125 — Execution tool -> Caller"
+    - id: "exc-4"
+      at_step: 3
+      condition: "The exec dir cannot be created"
+      system_reaction: "Exit 125, cause `setup`; nothing is started; there is no exec dir to hold a `result.json`."
+      exit_code: 125
+      cause: "setup"
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channel: "CHAN-FS-RUN-WORKSPACE"
+        object_flow: "filesystem error — /workspace -> Execution tool"
+    - id: "exc-5"
+      at_step: 4
+      condition: "Input staging fails (copy error, size cap `TBD` exceeded)"
+      system_reaction: "Exit 125, cause `setup`; nothing is started; the exec dir is kept and `result.json` is written."   # open: staging size cap
+      exit_code: 125
+      cause: "setup"
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channel: "CHAN-FS-RUN-WORKSPACE"
+        object_flow: "copy error — /workspace -> Execution tool"
+    - id: "exc-6"
+      at_step: 3
+      condition: "A folder agent-host root should have created is missing (`build/`, env dir, `.packages/`), or `build/` is missing or empty for a code profile with `requires_build: true`"
+      system_reaction: "Exit 125, cause `setup`; nothing is started, no exec dir is created and no `result.json` is written. The tool never creates these folders."
+      exit_code: 125
+      cause: "setup"
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channel: "CHAN-FS-RUN-WORKSPACE"
+        object_flow: "missing folder named in the diagnostic — Execution tool -> Caller"
+    - id: "exc-7"
+      at_step: 5
+      condition: "`image.tar` is missing or not loadable, the tarball's image ID does not match the profile `image_id`, or `GET /images/<image_id>/json` fails after the load"
+      system_reaction: "Exit 125, cause `setup`; the tool neither pulls nor builds. The operator supplies the image (IP-EXEC-TOOLPOOL)."
+      exit_code: 125
+      cause: "setup"
+      interaction_point:
+        ip_ref: "IP-INCONTAINER-ENGINE"
+        channel: "CHAN-ENGINE-API"
+        object_flow: "load or inspect error — `dockerd` -> Execution tool"
+    - id: "exc-8"
+      at_step: 6
+      condition: "The engine refuses a request (authorization plugin: a create outside the invariants, or a plugin ceiling lower than the profile's limits)"
+      system_reaction: "A container already created is removed; nothing is started. Exit 125, cause `denied`. It indicates a profile or tool setting outside the plugin's invariants."
+      exit_code: 125
+      cause: "denied"
+      interaction_point:
+        ip_ref: "IP-INCONTAINER-ENGINE"
+        channel: "CHAN-ENGINE-API"
+        object_flow: "authorization error from `dockerd` — `dockerd` -> Execution tool"
+    - id: "exc-9"
+      at_step: 7
+      condition: "The inspected settings differ from the fixed settings (capabilities, user, network, mounts, image, limits, environment, `AutoRemove`)"
+      system_reaction: "The container is removed (install: both); the command is never started. Exit 125, cause `verify`."
+      exit_code: 125
+      cause: "verify"
+      interaction_point:
+        ip_ref: "IP-INCONTAINER-ENGINE"
+        channel: "CHAN-ENGINE-API"
+        object_flow: "inspect result, `DELETE /containers/<id>` — Execution tool <-> `dockerd`"
+    - id: "exc-10"
+      at_step: 3
+      condition: "A lock is held, or the summed limits of the running executions would exceed the agent container's bounds (SSR-AGC-012)"
+      system_reaction: "Exit 125, cause `busy`; nothing is started, no exec dir is created and no `result.json` is written."   # open: only the slot accounting across concurrent tool processes; the rule (summed limits per SSR-AGC-012) is stated in SFR-AGE-005 and SSR-AGE-008
+      exit_code: 125
+      cause: "busy"
+      interaction_point:
+        ip_ref: "IP-EXEC-TOOL-CLI"
+        channel: "CHAN-SHELL-EXEC"
+        object_flow: "diagnostic on stderr, exit 125 — Execution tool -> Caller"
+    - id: "exc-11"
+      at_step: 8
+      condition: "The `install` fetch phase fails (e.g. a package without a prebuilt wheel)"
+      system_reaction: "The install container is removed, the fetch container is gone. The tool exits with the manager's exit code, cause `fetch`, and prints on stderr `run_ephemeral_container: fetch failed: packages without a prebuilt wheel must be built or downloaded as a wheel on agent-host and copied by the operator to Workspace-Agents/<agentID>/.packages/`. agent-graph surfaces cause and message to the operator, who supplies the wheel; output is kept; `result.json` records `phase: fetch`."
+      exit_code: "the manager's"
+      cause: "fetch"
+      interaction_point:
+        ip_ref: "IP-EXEC-TOOL-CLI"
+        channel: "CHAN-SHELL-EXEC"
+        object_flow: "manager exit code and the stderr message — Execution tool -> Caller"
+    - id: "exc-14"
+      at_step: 2
+      condition: "An input file fails the profile's `input_policy` (tool kind, USS-009; USC-009 step 5 and exc-9)"
+      system_reaction: "Exit 125, cause `policy`; nothing is created (no exec dir, no `result.json`). Not yet in code: the causes in `internal/sequence/sequence.go` have no `policy`, and the profile parser rejects `input_policy` (USS-005 \"Profile schema extensions\")."   # open: not implemented
+      exit_code: 125
+      cause: "policy"
+      interaction_point:
+        ip_ref: "IP-EXEC-TOOL-CLI"
+        channel: "CHAN-SHELL-EXEC"
+        object_flow: "diagnostic on stderr, exit 125 — Execution tool -> Caller"
+    - id: "exc-12"
+      at_step: 9
+      condition: "The command, driver or manager (install: the install phase) exits non-zero"
+      system_reaction: "The container is removed; the tool exits with that exit code, cause `exit`; output is kept. For agent-graph this is `NODE_FAILED(tool)` (USC-008 alt-7)."
+      exit_code: "its own"
+      cause: "exit"
+      interaction_point:
+        ip_ref: "IP-EXEC-TOOL-CLI"
+        channel: "CHAN-SHELL-EXEC"
+        object_flow: "the command's exit code and streamed output — Execution tool -> Caller"
+    - id: "exc-13"
+      at_step: 8
+      condition: "The tool is killed (`kill -9`) while a container runs"
+      system_reaction: "No `result.json` of this call is written; the container may remain. The next tool start removes stale `ephemeral.exec` containers whose `ephemeral.pid` no longer exists (step 3), or `sweep --label <k>=<v>` removes labelled ones."
+      exit_code: "n/a"
+      cause: "n/a"
+      interaction_point:
+        ip_ref: "IP-INCONTAINER-ENGINE"
+        channel: "CHAN-ENGINE-API"
+        object_flow: "`GET /containers/json`, `DELETE /containers/<id>` by the next call or `sweep` — Execution tool <-> `dockerd`"
+
+  postconditions:
+    - "The tool exited with the exit code of the execution; `result.json` in `/workspace/.output/exec/<execId>/` holds `{exit, cause, exec_dir, image_id, start, end}` (install also `phase`) and is the authoritative result"
+    - "`/workspace/.output/exec/<execId>/` holds `meta.json` (written once before start, unchanged), `result.json`, `stdout.log`, `stderr.log`, `in/`, `out/` and, for install, `dl/`; the logs, `meta.json` and `result.json` were never visible inside the container"
+    - "Products written to `$OUT` are in `out/`; a build left its output in `build/`; an install left its packages in the target env dir; nothing else in the workspace was written by the executed code"
+    - "After any outcome (normal exit, failure, timeout, cancel) no container `ephemeral-<execId>` exists (install: also no `ephemeral-<execId>-fetch`); after a `kill -9` of the tool the container is removed by the next tool start or by `sweep`"
+    - "Only `src/`, the env dirs, `build/` (if declared), `in/`, `out/` and `dl/` of the kind were mounted; `.input/`, `.process/`, `.tools/`, `.agent/`, other exec dirs, `.git`, credentials and the engine socket were not visible; code and build had no network, install had network only in the fetch phase"
+    - "The agent container's settings, network arming and the host are unchanged by the execution; the engine accepted no container outside the fixed settings"
+    - "Locks on env dirs and `build/` are released; the profile, the image tarball and the plugin policy are unchanged"
+
+  notes:
+    - "Order for code from the workspace: `install` -> `build` (compiled languages only) -> `run`; combining the steps is a matter for the process definition in agent-graph (USC-008), which issues separate calls."
+    - "Isolation claim (USS-005): the ephemeral container separates the executed code from the agent; the engine authorization plugin limits the agent's own use of the engine, so the group `docker` is no longer root-equivalent; the boundary to the host is the gVisor sandbox of the agent container (USS-002) and the host-side network controls (USS-004). The container runs under `runc` inside gVisor with the default seccomp profile, not as a second gVisor sandbox."
+    - "The exec tool's validation and inspect-verify are not replaced by the plugin; the plugin holds when the agent bypasses the tool. The plugin has no caller identity: its policy applies to the tool and to every other uid 1001 process alike."
+    - "Residual risks of the plugin (USS-005): request-body forwarding limits (CVE-2024-41110 class; pin a fixed engine version), TOCTOU on bind sources, no caller identity, image content not checked by the plugin, `POST /images/load` can fill the 2g tmpfs."
+    - "Kind `tool` (subcommand `tool`) uses the same tool, exec dir, fixed settings, profile store and plugin policy; defined in USS-009 and derived in USC-009 (guarded tool call and tool run: steps 4-6 add the kind check, `--param`, `input_policy`, the fixed argv and the tool mount model to steps 2-10 here). The agent reaches this use case only through the Claude Code managed settings and the hook `agent-tool-guard` (USC-009 steps 2 and 3)."
+    - "Open (USS-005): tool, plugin and `agent-init` are implemented (`packages/agent-exec`, fake-engine tests only, real-dockerd verification of the acceptance criteria open); `Dockerfile.agent` installs all three from `bin/`; CI build location of the binaries; profile schema extensions of the tool kind (`entry: fixed`, argv placeholders, `input_policy`, `params`, cause `policy`; not implemented); tool pool location and image build; provenance check of `tool.json`; default limits, ceilings (tool and plugin kept equal) and per-profile values; slot accounting; whether gVisor enforces memory, pids and CPU limits on the inner `runc` container; `--network none` needs `NET_ADMIN` on the agent container (resolved 2026-11-12, SSR-AGC-009; ephemeral containers use `CgroupnsMode host`); `--manifest` form for npm and conda; the rest of the process YAML schema (`args`, `manifests`, `inputs`; `isolate` and `profile` exist) and non-isolated steps, which still run through `SandboxExec`, in agent-graph; the verification spike (`runc` inside gVisor)."
+    - "Interaction points: IP-EXECUTION-CONTAINER, IP-AGENT-RUN-WORKSPACE, IP-EXEC-TOOL-CLI, IP-INCONTAINER-ENGINE, IP-ENGINE-AUTHZ and IP-EXEC-TOOLPOOL with their channels (CHAN-SHELL-EXEC, CHAN-ENGINE-API, CHAN-AUTHZ-PLUGIN, CHAN-FS-TOOLPOOL) are defined in `design/00_system_boundary/interaction_points.yml`; the four USS-005 ones are `# proposed`."

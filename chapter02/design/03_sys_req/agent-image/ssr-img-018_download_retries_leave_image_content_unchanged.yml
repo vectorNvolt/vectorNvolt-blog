@@ -1,0 +1,17 @@
+SSR-IMG-018:
+  title: "Keep download retries from changing the image content or its integrity checks"
+  kind: "structural"
+  usecase_step_ref: "USC-003: step 5"
+
+  statement: "The system shall confine the Ubuntu package download retry settings to the OS package step of the build and leave the content pins and integrity checks of the agent image unchanged."
+
+  condition: "For every build of the agent image, from the first retrieval of content to the completed build."
+
+  interface_points:
+    - "IP-IMAGE-CONTENT-SOURCE Image content source"
+
+  constraints:
+    - "Must show the retry settings of SFR-IMG-019 absent from every layer of the built image."
+    - "Must show every retried download requesting the same pinned version from the same source at IP-IMAGE-CONTENT-SOURCE; a retry never falls back to another source or to an unfrozen archive (SSR-IMG-004)."
+    - "Must show every retried download verified as required by SSR-IMG-004 before it is installed; a retry never skips or relaxes that check."
+    - "Rationale: retries make the build tolerate an unreliable source, but they must not become an implicit change to what the image contains or to how it is verified."

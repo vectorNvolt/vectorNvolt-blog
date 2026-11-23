@@ -1,0 +1,21 @@
+SFR-RTC-001:
+  title: "Verify the isolated execution runtime is registered before creation"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 2"
+
+  statement: "The system shall verify that the isolated execution runtime is registered with the container engine before it creates anything."
+
+  condition: "When the agent identity has been validated."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must read the registered runtimes from the engine at IP-DOCKER-ENGINE, not from any host configuration file, and find the isolated execution runtime (`runsc`) among them before any workspace or container is created."
+    - "Must make this registration check only before the creation; the runtime of the created container is checked again, from the inspected container, by the arming (SFR-NET-008, SSR-AGC-001) and by the final verification (SFR-AGC-009)."
+    - "Must treat an engine that does not answer at IP-DOCKER-ENGINE as a failed verification, not as a pass."
+    - "Must perform the verification as a read-only query, which SSR-AGC-005 holds."
+
+  post_conditions:
+    - "No workspace or container has been created before the verification passed."
+    - "The creation sequence continues when the isolated execution runtime is registered."

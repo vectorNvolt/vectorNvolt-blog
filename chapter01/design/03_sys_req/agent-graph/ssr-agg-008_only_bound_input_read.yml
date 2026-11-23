@@ -1,0 +1,16 @@
+SSR-AGG-008:
+  title: "Hold the input reading to the bound files"
+  kind: "structural"
+  usecase_step_ref: "USC-008: step 5, postconditions"
+
+  statement: "The system shall read from the input folder only the files recorded in the binding."
+
+  condition: "For every run, from the input binding to the exit."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show that the run reads from .input/ no file that is not listed in binding.json, checked at IP-AGENT-RUN-WORKSPACE."
+    - "Must show that only the process named in the dialog was loaded."
+    - "Must show that the files named in input.output-template-ref and input.ruleset of the process are checked and bound in input binding (USC-008 step 5) and that no other file is read from .input/."   # open: USC-008 does not say where the template and ruleset files live

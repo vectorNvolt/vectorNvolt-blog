@@ -1,0 +1,37 @@
+#cloud-config
+# agent-host foundation VM for Multipass (Windows) and cloud providers.
+# Usage: multipass launch 26.04 --name agent-host --cpus 4 --memory 8G --disk 60G --cloud-init vm/agent-host.cloud-init.yaml
+# Replace the placeholder public key below with your own before launching.
+# GENERATED from *.in by vm/generate.sh — do not edit.
+
+hostname: agent-host
+
+users:
+  - default
+  - name: ubuntu
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAA...REPLACE_WITH_YOUR_PUBLIC_KEY
+
+ssh_pwauth: false
+
+# Ubuntu package mirror, applied before the foundation script installs packages.
+# For faster downloads use a country mirror, e.g. http://hu.archive.ubuntu.com/ubuntu (both lines).
+apt:
+  primary:
+    - arches: [default]
+      uri: http://archive.ubuntu.com/ubuntu
+  security:
+    - arches: [default]
+      uri: http://security.ubuntu.com/ubuntu
+
+write_files:
+  - path: /usr/local/sbin/agent-foundation.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      @@FOUNDATION@@
+
+runcmd:
+  - [/usr/local/sbin/agent-foundation.sh]

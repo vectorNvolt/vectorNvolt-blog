@@ -1,0 +1,22 @@
+SFR-AGE-014:
+  title: "Finish the execution and report its result"
+  kind: "functional"
+  usecase_step_ref: "USC-005: steps 9, 10 (exception exc-12)"
+
+  statement: "The system shall end every started execution with the container removed, the result recorded and the exit code of the command returned."
+
+  condition: "When the command has ended."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+
+  constraints:
+    - "Must remove a container the engine did not remove, release the locks and write `result.json` with exit, cause (`ok` or `exit`), exec_dir, image_id, start and end."
+    - "Must exit with the command's exit code, and keep the execution folder with `meta.json`, `result.json`, both logs, `in/` and `out/` (install: also `dl/`)."
+    - "Must treat `result.json` as authoritative: the exit codes 124, 125, 130 and 137 of the command itself are told apart from the tool's only by `cause`, which SSR-AGE-012 holds."
+
+  post_conditions:
+    - "No container of the execution remains and the locks are released."
+    - "The products are in `out/` and a non-zero command exit is reported with cause `exit`."

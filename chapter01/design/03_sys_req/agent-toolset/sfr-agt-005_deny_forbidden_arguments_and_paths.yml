@@ -1,0 +1,23 @@
+SFR-AGT-005:
+  title: "Deny forbidden arguments and paths outside the zones"
+  kind: "functional"
+  usecase_step_ref: "USC-009: step 3 (exception exc-4, alternatives alt-1, alt-2)"
+
+  statement: "The system shall deny a tool call whose arguments break the rules of its command or whose path lies outside the zone the call needs."
+
+  condition: "When an allowlisted command carries a forbidden option, or a path input of a command or built-in tool resolves outside its read or write zone."
+
+  interface_points:
+    - "IP-TOOL-GUARD-HOOK Tool-call guard hook"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must deny `rg --pre` and `--pre-glob`, and `find` with `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete`, `-fprint*` or `-fls`."   # open: final argument rules
+    - "Must require every path of `mkdir`, `mv`, `cp`, `touch`, `rm`, edit and write in a write zone, `rm -r` only under `src/`, and every path of a research command or read in a readable zone, which SSR-AGT-003 holds."
+    - "Must resolve each path to its real path at IP-AGENT-RUN-WORKSPACE before the check, so a symlink in a zone that points elsewhere is denied."   # open: symlink handling of the built-in tools
+    - "Must deny every write into a run folder, its creation, renaming or removal, and every `mv`, `rm` or overwrite that touches `.output`, `.output/exec`, an execution folder or a `meta.json`, which SSR-AGT-004 holds."
+    - "Must deny at IP-TOOL-GUARD-HOOK with exit 2 and the reason."
+
+  post_conditions:
+    - "Nothing outside the write zones changed and nothing outside the readable zones was read."
+    - "The same command with arguments inside its zones remains available."

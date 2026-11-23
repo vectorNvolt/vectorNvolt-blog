@@ -1,0 +1,16 @@
+SSR-AGC-006:
+  title: "Create the whole container in one run of one executable"
+  kind: "structural"
+  usecase_step_ref: "USC-002: steps 1 to 10 (postcondition)"
+
+  statement: "The system shall create the whole agent container, its workspace and its network arming in one run of one executable."
+
+  condition: "For every agent container, from the creation request until the result is reported."
+
+  interface_points:
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must show one invocation at IP-CLI-CREATE-AGENT-CONTAINER leading to a container that is created, armed and verified, with no further manual step in between."
+    - "Must show no part of the container created by any other program or by a second invocation for the same request."
+    - "Must show the start of the agent process (docker exec -u 1001 by enter_agent, SFR-AGC-031) and the reconcile and event handling of the guard (agent_lifecycle guard, SFR-AGC-025, SFR-AGC-027) as separate programs and steps, not part of the creation run; they take part in no creation step and the creation run does not wait for them."

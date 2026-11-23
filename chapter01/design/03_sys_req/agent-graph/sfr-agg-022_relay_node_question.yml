@@ -1,0 +1,21 @@
+SFR-AGG-022:
+  title: "Relay a node's question to the developer"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 10 (alternative alt-2)"
+
+  statement: "The system shall pass a cognitive node's question to the developer and return the answer to the same session."
+
+  condition: "When a cognitive node reports WAITING(node, INPUT, question)."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must ask the question through the gateway at IP-CLI-AGENT-GRAPH-RUN, tagged with the node, never by the node itself (SSR-AGG-001)."
+    - "Must, in E3 hil, send ANSWER(payload) to the node, which sends the answer as the next turn of the stored session and append it to the run facts at IP-AGENT-RUN-WORKSPACE."
+
+  post_conditions:
+    - "The node continued in the same session."
+    - "The answer is part of the run facts of later nodes."

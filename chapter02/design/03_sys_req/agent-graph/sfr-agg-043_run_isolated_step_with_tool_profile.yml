@@ -1,0 +1,20 @@
+SFR-AGG-043:
+  title: "Run an isolated procedure step with a tool profile"
+  kind: "functional"
+  usecase_step_ref: "USC-009: alternative alt-6"
+
+  statement: "The system shall run an isolated procedure step that names a tool profile through the execution tool's tool run."
+
+  condition: "When an isolated procedure step names a profile of kind `tool`."
+
+  interface_points:
+    - "IP-EXECUTION-CONTAINER Ephemeral execution container"
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+
+  constraints:
+    - "Must call the tool run directly at IP-EXECUTION-CONTAINER, with no agent session and no guard, so SFR-AGT-008 to SFR-AGT-010 apply."   # open: isolated steps accept only kind `code`; the runner always calls `run`
+    - "Must not run a process tool from a non-isolated procedure step."
+
+  post_conditions:
+    - "The step's tool ran only in an ephemeral container with its profile's fixed command line."
+    - "Non-isolated procedure steps keep their behaviour."

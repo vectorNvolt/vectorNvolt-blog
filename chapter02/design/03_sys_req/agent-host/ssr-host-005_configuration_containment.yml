@@ -1,0 +1,21 @@
+SSR-HOST-005:
+  title: "Contain the container configuration inside the agent-host VM"
+  kind: "structural"
+  usecase_step_ref: "USC-001: steps 3 to 7, postconditions"
+  # Changed 2026-11-22: the VM is the boundary. create_agent_host runs inside the VM and can only act on the
+  # machine it runs on; the reader's machine (macOS, Linux or Windows) running Lima or Multipass is never
+  # addressed. The WSL "adapter pinned to agent-host" is replaced by the direct runner, which has no target
+  # parameter at all.
+
+  statement: "The system shall hold the container engine and sandboxed runtime configuration only inside the agent-host VM, and shall address no machine other than the one it runs on."
+
+  condition: "For every run of the creation command, from its start until its end."
+
+  interface_points:
+    - "IP-HOST-EXEC Direct command execution on the foundation VM"
+
+  constraints:
+    - "Must show the container engine and sandboxed runtime configuration present on the VM."
+    - "Must run every command through IP-HOST-EXEC on the machine the tool runs on (os/exec, no remote target, no host-side wrapper such as limactl, multipass, ssh or wsl.exe)."
+    - "Must change nothing on the reader's machine: the tool does not run there (SFR-HOST-014 refuses a non-Linux or non-foundation machine) and the VM has no host mounts, so no VM file is a file of the reader's machine."
+    - "Must not compare the state of the reader's machine before and after the run; the absence of change is guaranteed by construction, not measured."

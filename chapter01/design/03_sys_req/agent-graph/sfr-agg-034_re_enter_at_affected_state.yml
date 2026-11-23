@@ -1,0 +1,19 @@
+SFR-AGG-034:
+  title: "Re-enter at the earliest affected state"
+  kind: "functional"
+  usecase_step_ref: "USC-008: alternative alt-6"
+
+  statement: "The system shall resume after a resolution at the earliest state or node that the changes affect."
+
+  condition: "When the developer ends a resolution by approving fixes."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must, in S7, compare the hashes taken at entry and exit and re-enter as follows: nothing or run overrides only (overrides.json) to the failed state; a process choice to S2 with a new runID, keeping the old run; process text, skill pool or snippet pool to S3, then S4, S5, and S6 restarts at the earliest node whose step, edges or reads changed; input files or binding to S4, then S5, and S6 restarts at the earliest node reading a changed input; a missing precondition fixed to S1."
+    - "Must restart a node at its beginning (RESTART(node) carrying the resolution summary, which is appended to run_facts.jsonl and appears in the node's L3 layer), and keep the products of the nodes before the earliest changed one."
+
+  post_conditions:
+    - "Unchanged nodes were not repeated."
+    - "The resolution summary is in the run facts."

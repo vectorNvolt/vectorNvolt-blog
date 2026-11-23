@@ -1,0 +1,21 @@
+SFR-AGG-016:
+  title: "Enforce the per-attempt timeout and the run budgets"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 8 (exceptions err-12, err-13)"
+
+  statement: "The system shall stop a node attempt that exceeds its per-attempt timeout and escalate a run that reaches a run budget."
+
+  condition: "When an attempt exceeds its per-attempt timeout (step timeout, else runtime.timeout), or the count of steps (budgets.max_steps), language-model calls (budgets.max_llm_calls) or the run-time budget budgets.timeout reaches its limit."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+
+  constraints:
+    - "Must, in E2 supervise, run a timer per attempt (the per-attempt timeout: step timeout, else runtime.timeout), cancel the attempt with CANCEL(node) and count it as a failure (SFR-AGG-026). This is distinct from the run-time budget budgets.timeout."
+    - "Must count steps and language-model calls and the elapsed run time against the run budgets (budgets.max_steps, budgets.max_llm_calls, budgets.timeout), which resolution may raise only through the run overrides (overrides.json)."
+    - "Must, on a reached run budget (err-13), escalate through SFR-AGG-027 (E7 SUSPEND, checkpoint, ESCALATED) with the budget name, limit and count, and on the developer's quit report BUDGET_EXCEEDED with exit status 2; a per-attempt timeout that expired retry times (err-12) reports NODE_FAILED with exit status 2."
+
+  post_conditions:
+    - "No attempt ran beyond its timeout."
+    - "The checkpoint of the suspended run is kept and the run is resumable."

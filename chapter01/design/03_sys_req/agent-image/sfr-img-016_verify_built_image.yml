@@ -1,0 +1,24 @@
+SFR-IMG-016:
+  title: "Verify the built image exists in the agent-host Docker engine and carries no credential in its metadata"
+  kind: "functional"
+  usecase_step_ref: "USC-003: step 6, err-5, err-7"
+
+  statement: "The system shall confirm that the agent image exists in the agent-host Docker engine after the build, check its metadata for credentials without starting a container, and report an unverified result when the image is absent or the check finds a credential."
+
+  condition: "When the build has succeeded."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-IMAGE Developer command-line entrypoint"
+
+  constraints:
+    - "Must confirm at IP-DOCKER-ENGINE after the build that the image under the requested tag exists in the agent-host Docker engine."
+    - "Must write a failure report including the engine error to the error output at IP-CLI-CREATE-AGENT-IMAGE when the image is absent after the build, and not report success."
+    - "Must return exit status 2 at IP-CLI-CREATE-AGENT-IMAGE when the image is absent after the build."
+    - "Must, after the image is confirmed to exist, perform the credential check of SSR-IMG-005 on the image metadata (`docker image inspect` Config.Env and Config.Labels, `docker history --no-trunc` CreatedBy lines) at IP-DOCKER-ENGINE, without starting a container."
+    - "Must write a failure report to the error output at IP-CLI-CREATE-AGENT-IMAGE naming the offending environment variable or history step, never printing the matched value, not report success and return exit status 2 when the check finds a credential-like name or value."
+    - "Must perform no rollback when the confirmation or the credential check fails."
+
+  post_conditions:
+    - "No rollback has been performed and the result is reported as unverified when the confirmation or the credential check failed; the image stays in the agent-host Docker engine."
+    - "When the confirmation and the credential check succeeded, the image exists in the agent-host Docker engine and its metadata carries no credential-like name or value."

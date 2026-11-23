@@ -1,0 +1,22 @@
+SFR-AGC-004:
+  title: "Prepare the per-agent workspace"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 3"
+
+  statement: "The system shall prepare one workspace folder with its empty subfolders .output, build, .venv, .npm-env, .conda-env and .packages for the agent identity under the Workspace-Agents root and hand the workspace folder and each subfolder to the operating user."
+
+  condition: "When all prerequisite checks have passed."
+
+  interface_points:
+    - "IP-AGENT-WORKSPACE-FS Agent workspace folder"
+
+  constraints:
+    - "Must create the folder directly under the Workspace-Agents root at IP-AGENT-WORKSPACE-FS, at a path derived from the agent identity, and refuse any identity that would resolve outside that root."
+    - "Must create the subfolders .output, build, .venv, .npm-env, .conda-env and .packages inside the workspace folder, each empty and with mode 0755, when it is missing."
+    - "Must reuse a folder that already exists at that path, and an existing subfolder of that list, without error and without changing or deleting their contents; an existing subfolder is reused only if it is a real directory, not a symbolic link."
+    - "Must hand ownership (uid and gid 1001) of the workspace folder and of each of those subfolders to the operating user, whether each was created by this run or reused; the ownership change applies to those folders themselves and is not recursive."
+    - "Must create nothing else inside the workspace folder than the subfolders of that list (the folder src is not created)."
+
+  post_conditions:
+    - "No folder outside the Workspace-Agents root has been created or changed, and no existing content has been deleted."
+    - "The workspace folder for the agent identity and its subfolders .output, build, .venv, .npm-env, .conda-env and .packages exist, are owned by the operating user and are available to mount."

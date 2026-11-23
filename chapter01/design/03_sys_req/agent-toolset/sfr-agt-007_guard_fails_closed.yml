@@ -1,0 +1,21 @@
+SFR-AGT-007:
+  title: "Fail closed on a guard error"
+  kind: "functional"
+  usecase_step_ref: "USC-009: step 3 (exceptions exc-6, exc-7)"
+
+  statement: "The system shall deny a tool call when the tool-call guard cannot reach a decision."
+
+  condition: "When the guard receives bad input, finds its rules file unreadable or invalid, or fails internally."
+
+  interface_points:
+    - "IP-TOOL-GUARD-HOOK Tool-call guard hook"
+    - "IP-CLAUDE-POLICY-BUNDLE Agent policy bundle"
+
+  constraints:
+    - "Must catch every internal error and exit 2 with the reason at IP-TOOL-GUARD-HOOK."
+    - "Must show the session's behaviour when the guard crashes, is killed, exits non-zero other than 2 or exceeds its 10 s limit."   # open: hook failure semantics of the pinned version
+    - "Must keep the managed deny rules and the engine policy in force when the guard gives no decision, which SSR-AGT-007 holds."
+
+  post_conditions:
+    - "No call ran on a guard error that the guard caught."
+    - "The session continues; a later call is decided again."

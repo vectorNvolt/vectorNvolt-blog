@@ -1,0 +1,26 @@
+SFR-HOST-015:
+  title: "Set the hostname agent-host and keep it across reboots"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 4 (exception err-4)"
+  # Added 2026-11-22. Replaces the withdrawn SFR-HOST-006 (wsl.conf).
+  # Implemented by packages/agent-host/internal/steps/s04_set_hostname.go; its comment and
+  # config.HostName still cite "SFR-HOST-006".
+
+  statement: "The system shall set the hostname of the foundation VM to agent-host and keep cloud-init from resetting it at the next boot."
+
+  condition: "When the user agent-operator has been created (SFR-HOST-005)."
+
+  interface_points:
+    - "IP-HOST-EXEC Direct command execution on the foundation VM"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must set the hostname with hostnamectl set-hostname agent-host as root through IP-HOST-EXEC."
+    - "Must write /etc/cloud/cloud.cfg.d/99-agent-host-hostname.cfg (root:root, mode 644, replaced atomically) containing preserve_hostname: true, creating /etc/cloud/cloud.cfg.d if missing."
+    - "Must append the line 127.0.1.1 agent-host to /etc/hosts only when no entry naming agent-host exists yet, so that repeated runs add nothing."
+    - "Must be idempotent: a second run leaves the same hostname, the same drop-in content and a single /etc/hosts entry."
+    - "Must, when a command of the step fails, stop, report the failed step to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 2."
+
+  post_conditions:
+    - "The hostname is agent-host and survives a reboot of the VM (verified by SFR-HOST-009)."
+    - "/etc/cloud/cloud.cfg.d/99-agent-host-hostname.cfg holds preserve_hostname: true."

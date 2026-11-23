@@ -1,0 +1,22 @@
+SFR-AGG-009:
+  title: "Bind the input of the process"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 5 (exception err-8)"
+
+  statement: "The system shall run a process only on input files that were bound to its declared sources and passed their contract."
+
+  condition: "When the process, skills and snippets are valid."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+
+  constraints:
+    - "Must bind each declared path source to files in .input/ at IP-AGENT-RUN-WORKSPACE and ask the developer through the gateway which candidate set to bind when a pattern matches several sets; it must not choose."
+    - "Must ask the developer for every free-text source and check presence, type and schema of every bound source, and the files of output templates and rulesets."
+    - "Must write the bound files and the process id to .agent/<runID>/binding.json; from then on only bound files are read (SSR-AGG-008)."
+    - "Must, on a missing or non-conforming source, a missing template or ruleset or an unchosen set, reject before any dynamic node runs, enter resolution (SFR-AGG-033), re-enter at the input binding, and on the developer's quit report INPUT_INVALID with exit status 3."
+
+  post_conditions:
+    - "No node ran on unbound or non-conforming input."
+    - "The input folder is unchanged unless the developer approved a fix."

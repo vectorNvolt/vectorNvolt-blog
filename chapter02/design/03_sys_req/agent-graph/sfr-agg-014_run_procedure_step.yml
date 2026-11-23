@@ -1,0 +1,21 @@
+SFR-AGG-014:
+  title: "Run a procedure step without a language model"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 8 (alternative alt-5)"
+
+  statement: "The system shall run a procedure step as a command without involving a language model."
+
+  condition: "When the dynamic state machine reaches a procedure step."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-EXECUTION-CONTAINER Ephemeral execution container (only for isolate: true)"
+
+  constraints:
+    - "Must run the command in the agent sandbox (no interaction point beyond IP-AGENT-RUN-WORKSPACE) as an argument list, never through a shell, with the work folder, input and product placeholders substituted, and write products to .agent/<runID>/work/<nodeID>/."
+    - "Must run the command in an ephemeral execution container (USS-005) at IP-EXECUTION-CONTAINER when the step has isolate: true; the default and the interface are open in USS-008."
+    - "Must start no language-model session for the step."
+
+  post_conditions:
+    - "The command ran once per attempt in the place the step requested."
+    - "Its products are in the node work folder."

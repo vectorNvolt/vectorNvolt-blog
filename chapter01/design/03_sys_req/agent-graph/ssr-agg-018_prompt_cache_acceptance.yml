@@ -1,0 +1,19 @@
+SSR-AGG-018:
+  title: "Hold the prompt-cache use to the acceptance thresholds"
+  kind: "structural"
+  usecase_step_ref: "USC-008: step 10, alt-8, notes"
+
+  statement: "The system shall record the cache usage of every turn so that the prompt-cache acceptance thresholds can be checked."
+
+  condition: "For every run with at least two cognitive nodes, from the second cognitive node to the last."
+
+  interface_points:
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show that the first-turn cache_read_input_tokens of every cognitive node from the second on is at least 90 % of P_run (the first-turn cache read of the second cognitive node)."
+    - "Must show that within a node the cache read of a turn is at least 90 % of the previous turn."
+    - "Must show that ephemeral_1h_input_tokens is greater than 0 and ephemeral_5m_input_tokens is 0."
+    - "Must show that only the CACHE_PREFIX_DRIFT notice (USC-008 alt-8, a notice and a line in report.md, not an error) is part of the run; the measurement with design/tools/cache_probe.py is a design-time check, not a run step."   # open: probe results not yet recorded
+    - "Must show that the prefix this relies on is held by SSR-AGG-011 and SFR-AGG-021."

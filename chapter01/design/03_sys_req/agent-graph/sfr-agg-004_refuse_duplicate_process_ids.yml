@@ -1,0 +1,21 @@
+SFR-AGG-004:
+  title: "Refuse process files that share an id"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 3 (exception err-4)"
+
+  statement: "The system shall refuse to select a process whose id is shared by more than one process file."
+
+  condition: "When two or more process files in the process folder carry the same id."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must mark every file with the shared id as not selectable in the process list at IP-CLI-AGENT-GRAPH-RUN and name the files in the error."
+    - "Must offer through resolution (SFR-AGG-033) to rename or remove one file, and must change a process file only on the developer's approval of that change."
+    - "Must, on the developer's quit, report PROCESS_INVALID with exit status 3."
+
+  post_conditions:
+    - "No file with a shared id was run."
+    - "Files with unique ids remain selectable."

@@ -1,0 +1,23 @@
+SFR-AGT-011:
+  title: "Return the tool-run result to the agent"
+  kind: "functional"
+  usecase_step_ref: "USC-009: step 7 (exception exc-10)"
+
+  statement: "The system shall return the exit code, the streamed output and the execution folder of a tool run to the agent."
+
+  condition: "When the execution tool ends a call, successfully or not."
+
+  interface_points:
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must pass the exit code and cause of every execution failure through unchanged, which SSR-AGE-012 holds."
+    - "Must name the execution folder in the first error-output line at IP-EXEC-TOOL-CLI."
+    - "Must let the agent read `result.json`, the logs and `out/` at IP-AGENT-RUN-WORKSPACE, each read again decided by SFR-AGT-001."
+    - "Must keep `meta.json` as the execution tool wrote it, which SSR-AGT-004 holds."
+
+  post_conditions:
+    - "The agent holds the exit code and output of the call."
+    - "The execution record stays in the workspace for later reads."

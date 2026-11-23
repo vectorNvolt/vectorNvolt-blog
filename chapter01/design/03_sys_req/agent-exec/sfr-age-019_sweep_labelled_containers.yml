@@ -1,0 +1,20 @@
+SFR-AGE-019:
+  title: "Remove the containers carrying a given label"
+  kind: "functional"
+  usecase_step_ref: "USC-005: alternative alt-4"
+
+  statement: "The system shall remove exactly the execution containers that carry the label given by the caller."
+
+  condition: "When the caller invokes the subcommand `sweep` with a label."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+
+  constraints:
+    - "Must kill a running container with that label and then remove it, at IP-INCONTAINER-ENGINE."
+    - "Must touch no container without that label."
+
+  post_conditions:
+    - "No container with the label remains."
+    - "Containers without the label and the execution folders are unchanged."

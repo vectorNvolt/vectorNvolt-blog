@@ -1,0 +1,17 @@
+SSR-NET-006:
+  title: "Let no frame without the port mark pass the gate"
+  kind: "structural"
+  usecase_step_ref: "USC-004: step 4, alt-1"
+
+  statement: "The system shall let no ingress frame pass the agents-net gate that has not been marked by the per-port table of a released port, and shall fail closed when a gate or a port table does not implement the mark."
+
+  condition: "For every frame from a container port to the gate, and for every arming and gate check."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must show the mark (SFR-NET-034) set only by the ingress accept rules of a per-port table that was released together with its MAC in released (SFR-NET-010), so that a port without such a table sends frames without the mark and the gate drops them even when its MAC is in released."
+    - "Must show a gate whose ingress rule lacks the mark condition or the mark clearing treated as a mismatch that stops the arming (exit status 1) and is reported by the gate check, never as an open or acceptable gate."
+    - "Must show the mark cleared at the gate, so that it never reaches host routing or iptables, and no other mark bit changed by the gate or the port table."
+    - "Must show the mark bit chosen away from the low bits used by Docker, kube-proxy, firewalld and Cilium defaults."

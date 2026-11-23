@@ -1,0 +1,22 @@
+SFR-AGG-005:
+  title: "Validate the process definition"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 4 (exception err-5)"
+
+  statement: "The system shall accept a process for execution only when its definition is valid and its transitions are complete."
+
+  condition: "When the selected process file is loaded."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+
+  constraints:
+    - "Must reject a file that is not valid YAML, an unknown schema version (only agent-graph/v1 is known; the prototype version v0 and its node kinds are not accepted, following USS-008 draft 2) and any step type other than procedure, cognitive and human, naming line numbers in the findings at IP-CLI-AGENT-GRAPH-RUN."
+    - "Must check that every step is reachable from the entry and reaches END, that each declared outcome has exactly one edge, and that every human step has a hil_ok and a hil_nok edge; a cycle is accepted only through a defined edge, and every loop is bounded by the step budget of SFR-AGG-016."
+    - "Must reject any reference in the definition that is not resolved, and must resolve no code or program by a path given in the definition other than the fixed set the runtime allows (SSR-AGG-013)."
+    - "Must reject before any dynamic node runs, enter resolution (SFR-AGG-033) offering corrected text with line numbers, re-enter at the same state, and on the developer's quit report PROCESS_INVALID with exit status 3."
+
+  post_conditions:
+    - "No node of an invalid process ran."
+    - "The process file is unchanged unless the developer approved a correction."

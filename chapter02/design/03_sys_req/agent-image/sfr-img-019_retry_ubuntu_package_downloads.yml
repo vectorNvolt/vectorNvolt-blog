@@ -1,0 +1,24 @@
+SFR-IMG-019:
+  title: "Retry failed Ubuntu package downloads before stopping the build"
+  kind: "functional"
+  usecase_step_ref: "USC-003: step 5, err-4"
+
+  statement: "The system shall retry a failed Ubuntu package download a bounded number of times before stopping the build."
+
+  condition: "If a package index or package download from the Ubuntu repositories fails or stalls during the build of the agent image, then."
+
+  interface_points:
+    - "IP-IMAGE-CONTENT-SOURCE Image content source"
+    - "IP-CLI-CREATE-AGENT-IMAGE Developer command-line entrypoint"
+
+  constraints:
+    - "Must retry each failed download at IP-IMAGE-CONTENT-SOURCE up to 5 times before treating it as failed."
+    - "Must treat a connection at IP-IMAGE-CONTENT-SOURCE that makes no progress for 60 seconds as a failed download."
+    - "Must stop the build at the package index retrieval when an index download still fails after its retries, and not continue to package installation with an incomplete index."
+    - "Must report a download that still fails after its retries through the failure report and exit status 1 of SFR-IMG-003 at IP-CLI-CREATE-AGENT-IMAGE."
+    - "Scope: covers the Ubuntu repositories only (release pocket bootstrap and snapshot); the base image registry, npm and PyPI downloads are not covered."
+    - "Rationale: the Ubuntu snapshot service is often slow or briefly unavailable, and a single failed download otherwise fails the whole build. Retries cover short interruptions only; a longer outage still fails the build."
+
+  post_conditions:
+    - "When a download succeeded within its retries, the build continued with the same pinned versions from the same source."
+    - "When a download still failed after its retries, the build stopped with the download error reported, no new image exists under the requested tag and a previously existing image under that tag is kept unchanged."

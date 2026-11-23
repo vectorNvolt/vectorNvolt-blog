@@ -1,0 +1,20 @@
+SFR-AGG-036:
+  title: "Suspend the run on an interruption"
+  kind: "functional"
+  usecase_step_ref: "USC-008: err-16 (at any step)"
+
+  statement: "The system shall leave a resumable checkpoint when the run is interrupted."
+
+  condition: "When the developer interrupts, the terminal closes or the container stops."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must keep the last checkpoint in .agent/<runID>/ at IP-AGENT-RUN-WORKSPACE so that the resume option continues the run (alt-1, SFR-AGG-037); it must not enter resolution (no S7) and writes no S8 report."
+    - "Must report exit state SUSPENDED; no exit code is defined (open in USS-008, TBD in the use case), and a container stop kills the process, so the state is the last checkpoint written. Where the interruption comes from the engine (E7 SUSPEND, status SUSPENDED) the checkpoint is written by E7."
+
+  post_conditions:
+    - "The run can be resumed."
+    - "No partial product was passed on as complete."

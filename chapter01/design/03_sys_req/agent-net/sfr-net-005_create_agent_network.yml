@@ -1,0 +1,24 @@
+SFR-NET-005:
+  title: "Create the agent network"
+  kind: "functional"
+  usecase_step_ref: "USC-004: step 4, err-6"
+
+  statement: "The system shall create the shared agent network as a bridge-type network named agents-net with the fixed address range 172.30.0.0/24, not internal, so that it keeps its NAT route out."
+
+  condition: "When every precondition check has passed."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-NET Developer command-line entrypoint"
+
+  constraints:
+    - "Must request exactly one network with that name, type and range at IP-DOCKER-ENGINE."
+    - "Must not request the network as internal at IP-DOCKER-ENGINE, so that outbound traffic stays bounded by the host-side egress rules applied by the arming request (layer 6), and by the gate of SFR-NET-025 until a container is armed."
+    - "Must report the exit state CREATE_FAILED at IP-CLI-CREATE-AGENT-NET when the creation fails."
+    - "Must write a failure report including the engine's error to the error output at IP-CLI-CREATE-AGENT-NET when the creation fails."
+    - "Must return exit status 2 at IP-CLI-CREATE-AGENT-NET when the creation fails."
+    - "Must show no cleanup and no rollback after a failed creation."
+
+  post_conditions:
+    - "The agent network exists with the fixed address range after a successful creation."
+    - "No network has been created beyond that one."

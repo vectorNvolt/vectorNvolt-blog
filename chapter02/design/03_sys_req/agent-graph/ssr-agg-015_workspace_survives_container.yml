@@ -1,0 +1,16 @@
+SSR-AGG-015:
+  title: "Hold the workspace on the host"
+  kind: "structural"
+  usecase_step_ref: "USC-008: postconditions"
+
+  statement: "The system shall hold the run's workspace on the host so that it survives container removal."
+
+  condition: "For every agent entity, from its creation until its workspace is removed."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must show that a run folder written in the container is present on the host in Workspace-Agents/<agentID> and in a recreated container (USS-006)."
+    - "Must show that a run can be resumed after the container was recreated (SFR-AGG-037)."

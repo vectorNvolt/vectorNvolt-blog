@@ -1,0 +1,20 @@
+SFR-AGE-001:
+  title: "Reject an invalid invocation with nothing created"
+  kind: "functional"
+  usecase_step_ref: "USC-005: step 2 (exception exc-1)"
+
+  statement: "The system shall reject an invocation of the execution tool that is invalid, creating nothing."
+
+  condition: "When the caller invokes the execution tool with missing or invalid arguments, an unknown subcommand or profile, a subcommand not matching the profile kind, a timeout above the profile limit, an execution name that is existing or does not match `[a-z0-9][a-z0-9-]{0,63}`, an input outside the workspace, unreadable, not matching the profile or with a duplicate basename for a name that allows several files, or an install request without a valid manifest or with an input."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+
+  constraints:
+    - "Must write a diagnostic prefixed with the tool name to the error output at IP-EXEC-TOOL-CLI and exit with status 125, cause `usage`."
+    - "Must create no execution folder, no container and no lock before the invocation is accepted."
+    - "Must reject a manifest or free package-manager arguments on any kind other than `install`, and an input or free manager arguments on `install`."
+
+  post_conditions:
+    - "No execution folder, container, lock or staged input exists for the rejected call."
+    - "The caller holds a diagnostic that names the cause, and a valid invocation of the same tool remains available."

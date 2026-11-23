@@ -1,0 +1,10 @@
+SFR-HOST-007:
+  title: "WITHDRAWN 2026-11-22: Apply the distro configuration by stopping agent-host"
+  kind: "functional"
+  status: "withdrawn"
+  withdrawn: "withdrawn 2026-11-22: WSL2 path removed"
+  usecase_step_ref: "USC-001: withdrawn (WSL removed)"
+  # No wsl.exe --terminate: nothing needs a restart to take effect. The VM is never stopped by the tool.
+  # The keep-alive (scheduled task / Startup entry that kept the WSL distro from idle-stopping) is also gone;
+  # the VM is started and stopped by limactl or multipass, and dockerd, agent-restore.service and
+  # agent-guard.service come back at every VM boot (SFR-HOST-011).

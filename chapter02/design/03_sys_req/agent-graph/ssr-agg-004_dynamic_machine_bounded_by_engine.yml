@@ -1,0 +1,17 @@
+SSR-AGG-004:
+  title: "Hold the dynamic state machine under engine commands only"
+  kind: "structural"
+  usecase_step_ref: "USC-008: steps 7, 8"
+
+  statement: "The system shall change the dynamic state machine only on a command of the execution engine and report every change as a status."
+
+  condition: "For every run, from the start command to the end of the dynamic state machine."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show that the dynamic state machine does no terminal input or output and never ends the run itself."
+    - "Must show that the only commands are START, RESTART, HIL_OK, HIL_NOK, ANSWER, RETRY, CANCEL and SUSPEND, and the only statuses NODE_STARTED, NODE_DONE, WAITING, NODE_FAILED, COMPLETED and SUSPENDED, following USS-008 draft 2 (the draft 1 names NODE_READY, CONTEXT and ABORT are not used)."
+    - "Must show that the dynamic state machine pauses by an interrupt and is driven by the engine by streaming with resume commands, in its own checkpoint thread."
+    - "Must show that every transition followed is an edge of the process, as SFR-AGG-013 holds."

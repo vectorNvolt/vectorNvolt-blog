@@ -1,0 +1,22 @@
+SFR-AGE-015:
+  title: "Run a build in the execution container"
+  kind: "functional"
+  usecase_step_ref: "USC-005: alternative alt-1; step 3 (alternative alt-7)"
+
+  statement: "The system shall run the fixed build driver of a build profile in an execution container that may write the build folder."
+
+  condition: "When the caller invokes the subcommand `build` for a profile of kind `build`."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must run the profile's driver plus the caller's driver arguments, offline, with the build folder and `out/` writable and source, environment folders and `in/` read-only."
+    - "Must take an exclusive lock on the build folder, so the build folder is written by `build` only."
+    - "Must exit with the driver's exit code."
+    - "Must, for a `code` profile that requires a build, check before creating a container that the build folder exists and is not empty, mount it read-only and never build implicitly."
+
+  post_conditions:
+    - "The build output is in the build folder; nothing else in the workspace was written by the driver."
+    - "A `run` of a profile requiring a build starts only after a build."

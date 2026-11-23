@@ -1,0 +1,18 @@
+SFR-AGC-014:
+  title: "Check that the engine answers before a removal"
+  kind: "functional"
+  usecase_step_ref: "USC-006: step 2, err-2"
+
+  statement: "The system shall check that the container engine answers before it changes anything."
+
+  condition: "After a valid removal request."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must not require the runsc runtime to be registered."
+    - "Must report an unavailable engine at IP-CLI-REMOVE-AGENT-CONTAINER with exit status 1 and exit state NOT_REMOVED and change nothing."
+
+  post_conditions:
+    - "An unavailable engine has left every container, rule and folder as it was."

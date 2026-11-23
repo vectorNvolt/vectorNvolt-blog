@@ -1,0 +1,19 @@
+SFR-AGG-011:
+  title: "Confirm the start with the graph outline"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 6"
+
+  statement: "The system shall start the execution only after the developer has seen the graph outline and confirmed the start."
+
+  condition: "When the dynamic state machine is compiled."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+
+  constraints:
+    - "Must show nodes, edges, human steps and budgets through the gateway at IP-CLI-AGENT-GRAPH-RUN."
+    - "Must wait for the explicit confirmation and start no node before it."
+
+  post_conditions:
+    - "No node ran before the confirmation."
+    - "The developer can still quit before any node ran."

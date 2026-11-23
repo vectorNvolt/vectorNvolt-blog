@@ -1,0 +1,19 @@
+SFR-AGG-025:
+  title: "Repeat an earlier node on a named outcome"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 8 (alternative alt-4)"
+
+  statement: "The system shall repeat an earlier node when its outcome edge leads back to it."
+
+  condition: "When a node sets an outcome whose edge leads to an earlier step."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must follow only the outcome edge the process defines; the repeated node starts from its beginning, a cognitive node in a new session."
+    - "Must bound the loop by the step budget, reaching it as SFR-AGG-016 describes."
+
+  post_conditions:
+    - "The loop followed only defined edges."
+    - "The earlier products stay in the work folder until the repeated node replaces them."

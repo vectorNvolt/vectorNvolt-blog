@@ -1,0 +1,48 @@
+# agent-host foundation VM for Lima (macOS / Linux).
+# Usage: limactl start --name=agent-host vm/agent-host.lima.yaml
+# GENERATED from *.in by vm/generate.sh — do not edit.
+
+minimumLimaVersion: "1.0.0"
+
+images:
+  - location: https://cloud-images.ubuntu.com/releases/resolute/release-20261108/ubuntu-26.04-server-cloudimg-amd64.img
+    arch: x86_64
+    digest: sha256:7b90593f5532b49b7e3fe3d2743f0d1f0d822e5b07cebcd8e00c0df8069ecab9
+  - location: https://cloud-images.ubuntu.com/releases/resolute/release-20261108/ubuntu-26.04-server-cloudimg-arm64.img
+    arch: aarch64
+    digest: sha256:cf3b8472b84e7de37cdc2d2e9a9bf82b3edf0ab97113a1422eff048f26688e2f
+
+cpus: 4
+memory: "8GiB"
+disk: "60GiB"
+
+# Pin the default Lima user to UID 1000: UID 1001 is reserved for agent-operator.
+user:
+  uid: 1000
+
+mounts: []
+
+containerd:
+  system: false
+  user: false
+
+ssh:
+  localPort: 0
+  loadDotSSHPubKeys: false
+  forwardAgent: false
+
+provision:
+  - mode: system
+    script: |
+      @@FOUNDATION@@
+
+probes:
+  - description: "agent foundation marker present"
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      if ! timeout 900s bash -c "until test -f /etc/agent-foundation; do sleep 3; done"; then
+        echo >&2 "/etc/agent-foundation not found: foundation.sh has not finished"
+        exit 1
+      fi
+    hint: "See /var/log/cloud-init-output.log in the guest"

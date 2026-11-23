@@ -1,0 +1,17 @@
+SSR-AGG-009:
+  title: "Hold one session and one directory per cognitive node"
+  kind: "structural"
+  usecase_step_ref: "USC-008: step 10"
+
+  statement: "The system shall hold each cognitive node in its own session and its own working directory."
+
+  condition: "For every cognitive node attempt, from its working set to its done status."
+
+  interface_points:
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show that each node starts its session from its own working set active/ (moved to nodes/<nodeID>/ after the node) holding its generated instruction file, staged skills, context pack and context record, and that nodes/<nodeID>/ holds the transcript; the session identifier is stored in the checkpoint, not in the node folder."
+    - "Must show that a session is dropped by no timeout or overflow without a recorded failure: no silent drop of history."
+    - "Must show that no conversation history of one node is given to another; only products, handoff notes and run facts cross."

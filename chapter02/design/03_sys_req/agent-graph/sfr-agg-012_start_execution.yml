@@ -1,0 +1,19 @@
+SFR-AGG-012:
+  title: "Load the run state and start the dynamic state machine"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 7"
+
+  statement: "The system shall start the dynamic state machine from its entry with the bound input and the recorded run state."
+
+  condition: "When the developer has confirmed the start (E1 load of the S6 execution engine)."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must load the compiled graph, the checkpoint and the run overrides at IP-AGENT-RUN-WORKSPACE and send START to the dynamic state machine (RESTART(node) on a resume or re-entry, SFR-AGG-037, SFR-AGG-034), which begins at the process entry; it runs under its own checkpoint thread, separate from the static state machine."
+    - "Must drive the dynamic state machine only through the engine commands (SSR-AGG-004) and record every command and status in .agent/<runID>/ (SSR-AGG-006)."
+
+  post_conditions:
+    - "The dynamic state machine is at its entry node."
+    - "No node was selected by the execution engine."

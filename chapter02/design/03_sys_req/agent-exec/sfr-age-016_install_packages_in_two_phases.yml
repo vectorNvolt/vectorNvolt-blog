@@ -1,0 +1,23 @@
+SFR-AGE-016:
+  title: "Install packages in a fetch phase and an offline install phase"
+  kind: "functional"
+  usecase_step_ref: "USC-005: alternative alt-2"
+
+  statement: "The system shall install the packages of a manifest into the target environment folder in two phases, executing no package code."
+
+  condition: "When the caller invokes the subcommand `install` with at least one manifest under the source folder."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must build both argument lists from the profile and the manifests, with the fetch phase restricted to prebuilt packages (no-execution flags) and the install phase offline from the download and packages folders (the manifest argument form for npm and conda is TBD)."
+    - "Must start the fetch container first and the install container only when the fetch ends with exit 0, within one wall-clock limit for both."
+    - "Must give network only to the fetch container; the install container has none, which SSR-AGE-002 holds."
+    - "Must never create the target environment folder itself (a precondition, SFR-AGE-004, exc-6); the install driver (e.g. `install-into-venv`) creates the virtual environment inside the existing folder when `pyvenv.cfg` is missing; only the target environment folder is written, with the other environment folders read-only."
+
+  post_conditions:
+    - "The packages are in the target environment folder; no package code was executed in either phase."
+    - "Both containers are removed and `result.json` records the phase."

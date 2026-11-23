@@ -1,0 +1,20 @@
+SFR-NET-029:
+  title: "Tag each released element with the container name"
+  kind: "functional"
+  usecase_step_ref: "USC-004: alt-1"
+
+  statement: "The system shall give every element of the set released the container name as its comment, added in the same atomic transaction that adds the element."
+
+  condition: "When the port of a container is released (SFR-NET-010)."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must add the element as `{ <mac> comment \"<container name>\" }` in the one atomic nft -f of the release, so that no element exists without its comment."
+    - "Must read the set as JSON (`nft -j list set netdev agents_gate released`) to see the comments; an element without a comment is untagged."
+    - "Must be able to match an element by its comment alone, for the name-keyed disarm (SFR-NET-027)."
+    - "Must require nft 0.9.1 or later and kernel set element userdata (the agent-host has nft 1.0.9); the set declaration of SFR-NET-025 is unchanged."
+
+  post_conditions:
+    - "Every element of released that was added by a release carries the name of its container."

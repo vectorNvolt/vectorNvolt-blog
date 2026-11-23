@@ -1,0 +1,17 @@
+SSR-AGE-013:
+  title: "Resolve every path inside the workspace without symbolic link escape"
+  kind: "structural"
+  usecase_step_ref: "USC-005: steps 2, 4, 6"
+
+  statement: "The system shall resolve every path the tool reads or mounts without leaving the workspace by a symbolic link."
+
+  condition: "For every path of an execution, from validation until the container is created."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-ENGINE-AUTHZ Engine authorization interface"
+
+  constraints:
+    - "Must show every open at IP-AGENT-RUN-WORKSPACE confined below the workspace, with a link out of it refused."
+    - "Must show the plugin refusing a create whose mount source contains a symbolic link component."
+    - "Must show the residual window between check and use (TOCTOU) covered by the read-only, uid 1001-only setting of SSR-AGE-001."

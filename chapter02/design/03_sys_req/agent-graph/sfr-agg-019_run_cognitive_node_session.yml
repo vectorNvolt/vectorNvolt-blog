@@ -1,0 +1,23 @@
+SFR-AGG-019:
+  title: "Run a cognitive node in its own language-model session"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 10"
+
+  statement: "The system shall run each cognitive node in one language-model session that starts fresh at node entry."
+
+  condition: "When the working set of a cognitive node is composed."
+
+  interface_points:
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must start the session as a child process of the runtime at IP-CLAUDE-CLI with an argument list, never through a shell, from the node's own directory (the working set in .agent/<runID>/active/), in a streaming event format that carries the session identifier, with the run's model, effort, tool allowlists and a run-specific tool-server configuration, and with only project-level instruction sources."
+    - "Must store the session identifier in the checkpoint and continue the same session for later turns, answers and retries; a repeat of the node starts a new session."
+    - "Must check the child process exit status and liveness and map a missing login, an unreachable endpoint or a dead process to SFR-AGG-029, never use the error stream as the answer."
+    - "Must require, besides the products, a handoff note (done, decisions, open points); no conversation history crosses a node boundary."
+    - "Must store the session events as the node transcript and move the working set (active/) to nodes/<nodeID>/ with transcript.jsonl at IP-AGENT-RUN-WORKSPACE when the node is done and has reported NODE_DONE."
+
+  post_conditions:
+    - "Each cognitive node has its own session and transcript."
+    - "The session can be continued after an interruption."

@@ -1,0 +1,18 @@
+SSR-AGE-001:
+  title: "Run every execution container unprivileged with a read-only root"
+  kind: "structural"
+  usecase_step_ref: "USC-005: steps 6, 7"
+
+  statement: "The system shall run every execution container as an unprivileged user without capabilities, with a read-only root file system and in private namespaces."
+
+  condition: "For every execution container, from creation until it is removed."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+    - "IP-ENGINE-AUTHZ Engine authorization interface"
+
+  constraints:
+    - "Must show on the inspected container at IP-INCONTAINER-ENGINE user 1001:1001, all capabilities dropped and none added, no-new-privileges, the default system-call filter and a read-only root file system."
+    - "Must show no privileged mode, no device, no host namespace and no shared namespace of another container."
+    - "Must show the runtime the default one of the engine."
+    - "Must have the plugin refuse any create that deviates, which SSR-AGE-007 holds, so a container that can start never does more than the agent user itself."

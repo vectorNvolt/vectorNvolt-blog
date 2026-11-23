@@ -1,0 +1,22 @@
+SFR-AGG-006:
+  title: "Validate the declared skills and snippets"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 4 (exception err-6)"
+
+  statement: "The system shall accept a process only when every skill and snippet it declares is present and valid in the pools and the agent layer is not empty."
+
+  condition: "When the selected process file has passed the definition check of SFR-AGG-005."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+
+  constraints:
+    - "Must check that every declared skill exists in identity/.skills/ with a valid SKILL.md and every declared snippet exists in identity/.snippet/ with valid front matter, at IP-AGENT-RUN-WORKSPACE."
+    - "Must reject an exclusion that names an unknown skill or a skill the same step declares; no process-wide exclusion exists, only per step."
+    - "Must reject a snippet pool that holds no snippet of the agent layer."
+    - "Must name the skill or snippet and the step in the finding, enter resolution (SFR-AGG-033), re-enter at the definition check, and on the developer's quit report PROCESS_INVALID with exit status 3."
+
+  post_conditions:
+    - "No node ran with a missing or invalid skill or snippet."
+    - "The pools are unchanged unless the developer approved a fix."

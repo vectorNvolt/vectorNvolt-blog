@@ -1,0 +1,7 @@
+{
+  "title": "Exec",
+  "slug": "exec",
+  "summary": "How an agent framework executes work it does not fully trust. The chapter starts with the process runtime: how a developer-defined flow is enforced around a language model, so that the model decides inside a step and the graph decides everything else.",
+  "order": 2,
+  "repo": "https://github.com/vectorNvolt/vectorNvolt-blog"
+}

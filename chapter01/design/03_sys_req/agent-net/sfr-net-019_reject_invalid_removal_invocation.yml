@@ -1,0 +1,18 @@
+SFR-NET-019:
+  title: "Reject an invalid invocation of the removal tool"
+  kind: "functional"
+  usecase_step_ref: "USC-007: step 1, err-1"
+
+  statement: "The system shall reject any invocation of the removal tool that carries an argument."
+
+  condition: "When `remove_agent_net` is invoked with one or more arguments."
+
+  interface_points:
+    - "IP-CLI-REMOVE-AGENT-NET Network removal entrypoint"
+
+  constraints:
+    - "Must write a usage error to stderr and return `exit_code: 1`, state `NOT_REMOVED`."
+    - "Must not call the Docker engine and must not change any rule, container or network."
+
+  post_conditions:
+    - "Nothing has been changed."

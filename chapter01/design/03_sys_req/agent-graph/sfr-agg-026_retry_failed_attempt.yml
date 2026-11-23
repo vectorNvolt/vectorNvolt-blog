@@ -1,0 +1,21 @@
+SFR-AGG-026:
+  title: "Retry a failed node attempt"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 8 (alternative alt-7)"
+
+  statement: "The system shall retry a node attempt that failed by schema, tool or timeout while the failed attempts are below the retry threshold."
+
+  condition: "When a node reports NODE_FAILED(node, kind, reason) with kind schema, tool or timeout and its failed attempts are fewer than its retry threshold."
+
+  interface_points:
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must use the step threshold, else runtime.retry, default 2: E4 failure_policy retries while the failed attempts are fewer than the threshold and escalates (SFR-AGG-027) when the node has failed retry times."
+    - "Must send RETRY(node): a cognitive node continues its session with the failure reason as its next turn, a procedure step runs run again; a timed-out attempt is cancelled first with CANCEL(node) by E2."
+    - "Must record every attempt and its reason in the command and status history."
+
+  post_conditions:
+    - "Each retry is recorded with its reason."
+    - "Products of the failed attempt are not passed on."

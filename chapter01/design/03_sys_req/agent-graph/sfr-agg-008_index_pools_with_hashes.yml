@@ -1,0 +1,19 @@
+SFR-AGG-008:
+  title: "Index the skill and snippet pools with content hashes"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 4"
+
+  statement: "The system shall record a content hash of every skill and snippet file the run can use before the first node runs."
+
+  condition: "When the process, its skills and its snippets have passed validation."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must write the index with the SHA-256 of every pool file to .agent/<runID>/index.json at IP-AGENT-RUN-WORKSPACE."
+    - "Must use the index as the reference for later change detection in resolution (SFR-AGG-034) and for the context records of SFR-AGG-017."
+
+  post_conditions:
+    - "The index exists in the run folder before any node starts."
+    - "The pool files were not changed by indexing."

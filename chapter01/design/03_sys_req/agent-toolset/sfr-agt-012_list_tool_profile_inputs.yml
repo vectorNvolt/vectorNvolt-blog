@@ -1,0 +1,19 @@
+SFR-AGT-012:
+  title: "List the inputs and parameters of tool profiles"
+  kind: "functional"
+  usecase_step_ref: "USC-009: alternative alt-4"
+
+  statement: "The system shall report for every tool profile the inputs and parameters a correct call needs."
+
+  condition: "When the agent requests the machine-readable profile list."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+
+  constraints:
+    - "Must report per tool profile, besides the common fields of SFR-AGE-018, each input name with its pattern, multiplicity and optionality, and the parameter schema."   # open: not in code
+    - "Must create no container and no execution folder."
+
+  post_conditions:
+    - "Nothing was created or changed."
+    - "The agent can form a valid tool-run call from the list alone."

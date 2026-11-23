@@ -1,0 +1,29 @@
+SSR-AGC-004:
+  title: "Share only the agent workspace between host and container"
+  kind: "structural"
+  usecase_step_ref: "USC-002: steps 3, 4, 9"
+
+  statement: "The system shall share the agent workspace folder and the agent's own Claude state directory as the only host paths that the agent container can write, and shall mount the agent's own Claude Code policy folder read-only."
+
+  condition: "For every agent container, from its start until it is removed."
+
+  interface_points:
+    - "IP-AGENT-WORKSPACE-FS Agent workspace folder"
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+
+  constraints:
+    - "Must show the workspace folder of the agent identity mounted read-write, inspected on the container at IP-DOCKER-ENGINE."
+    - "Must show the Claude state directory /var/lib/agent-sandbox/<id>/claude of the agent identity mounted read-write at /home/agent/.claude, and no other host path mounted read-write, inspected on the container at IP-DOCKER-ENGINE."
+    - "Must show the Claude Code policy folder /var/lib/agent-sandbox/<id>/claude-code of the agent identity mounted read-only at /etc/claude-code, inspected on the container at IP-DOCKER-ENGINE."   # proposed (USS-009)
+    - "Must show no other host path mounted into the container than those three and the read-only /etc/resolv.conf (exactly four bind mounts), inspected on the container at IP-DOCKER-ENGINE, which SFR-AGC-006 establishes."   # changed from three to four bind mounts (USS-009), see the note below
+    - "Must show the Workspace-Agents root, the workspace folders of other agents, and the Claude state directories and policy folders of other agents not reachable from inside the container (the state parents /var/lib/agent-sandbox and /var/lib/agent-sandbox/<id> are root:root mode 711)."
+
+# Why the fourth mount (USS-009, 2026-11-11): the Claude Code managed settings, the PreToolUse hook agent-guard
+# and its command rules decide which tools and commands the agent may use. If they lived in the workspace or in
+# /home/agent/.claude, uid 1001 could change them and switch off its own limits. Files baked into the image
+# would need an image rebuild for every policy change and could be changed by uid 0 inside the sandbox. A read-only
+# bind of a root-owned host folder is enforced outside the sandbox, so neither the agent nor in-sandbox
+# root can change it (to verify under runsc). The folder is per agent and is written at each creation (USC-002
+# step 3), so a running agent keeps the policy it was created with and a policy update takes effect when the
+# container is recreated. The statement is unchanged in its intent: the mount is read-only, so the workspace and
+# the Claude state stay the only host paths the container can write.

@@ -1,0 +1,21 @@
+SFR-AGG-023:
+  title: "Run a human review step"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 11"
+
+  statement: "The system shall hold the run at a human step until the developer decides on the reviewed items."
+
+  condition: "When a human step reports WAITING(node, HIL) (E3 hil)."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must present the review brief and the items the step reads through the gateway and discuss with the developer until the decision."
+    - "Must send the approval as HIL_OK to the dynamic state machine, which follows the hil_ok edge, and append the decision to the run facts at IP-AGENT-RUN-WORKSPACE."
+    - "Must wait without a limit other than the step timeout (asynchronous steps are open in USS-008)."
+
+  post_conditions:
+    - "The run did not pass the step without a decision."
+    - "The decision is recorded."

@@ -1,0 +1,17 @@
+SSR-AGE-006:
+  title: "Take images only from the operator-supplied tool pool"
+  kind: "structural"
+  usecase_step_ref: "USC-005: step 5"
+
+  statement: "The system shall use only images that the operator supplied through the tool pool and never fetch or build one."
+
+  condition: "For every execution, from the image check until the container is created."
+
+  interface_points:
+    - "IP-EXEC-TOOLPOOL Execution tool pool"
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+
+  constraints:
+    - "Must show no pull, push or build request sent by the tool at IP-INCONTAINER-ENGINE, and the plugin denying them."
+    - "Must show every image coming from a tarball in the workspace tool folder whose image id equals the profile's `image_id`."
+    - "Must show no profile or image built into the agent image."

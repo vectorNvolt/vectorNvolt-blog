@@ -1,0 +1,22 @@
+SFR-AGT-002:
+  title: "Deny excluded tools and protected paths by the managed policy"
+  kind: "functional"
+  usecase_step_ref: "USC-009: step 2 (exception exc-1, alternative alt-7)"
+
+  statement: "The system shall deny a tool call that uses an excluded tool or edits or reads a protected path, whatever a session flag or workspace setting declares."
+
+  condition: "When the agent requests a web fetch or search, a subagent, a notebook edit or any externally served tool; an edit or write of `.process/`, `.input/`, `.tools/`, `.output/exec/*/meta.json`, `build/`, any workspace `.claude/` or the policy folder; or a read of the agent's login credentials file."
+
+  interface_points:
+    - "IP-CLAUDE-POLICY-BUNDLE Agent policy bundle"
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+
+  constraints:
+    - "Must take the deny rules only from the policy bundle at IP-CLAUDE-POLICY-BUNDLE, with precedence over session flags, user settings and every workspace setting."
+    - "Must run no hook and apply no permission declared in a workspace `.claude/` (also the runtime-written `.agent/<run>/active/.claude/`); such a declaration cannot widen the decision."
+    - "Must allow session flags only to narrow the managed policy (agent-graph per-turn allow rules), never to widen it."
+    - "Must report the denial at IP-CLAUDE-CLI as a tool error; nothing runs."
+
+  post_conditions:
+    - "No excluded tool ran and no protected path was changed; the credentials file was not read."
+    - "The session continues with the base toolset, which SSR-AGT-001 holds."

@@ -1,0 +1,21 @@
+SFR-AGG-013:
+  title: "Run one node at a time along the defined edges"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 8"
+
+  statement: "The system shall run the nodes of the process one at a time and follow, after each node, only the one edge whose condition holds."
+
+  condition: "When the dynamic state machine reports that a node has finished."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+
+  constraints:
+    - "Must report NODE_STARTED(node, context_ref) and NODE_DONE(node, outcome, products, summary) to the execution engine (E2 supervise), report NODE_FAILED and COMPLETED as the contract says, and print success, failure and warning notices only through the gateway (SSR-AGG-001)."
+    - "Must follow the edge for done, a named outcome, hil_ok or hil_nok and never select a node itself; a repeat of an earlier node starts that node from its beginning (SFR-AGG-025)."
+    - "Must keep the full command and status history in .agent/<runID>/ at IP-AGENT-RUN-WORKSPACE."
+
+  post_conditions:
+    - "Exactly one node was active at a time."
+    - "The path taken is reproducible from the recorded history."

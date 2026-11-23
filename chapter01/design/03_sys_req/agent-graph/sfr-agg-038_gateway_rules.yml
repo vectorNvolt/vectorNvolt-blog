@@ -1,0 +1,22 @@
+SFR-AGG-038:
+  title: "Route every developer interaction through the gateway"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 2"
+
+  statement: "The system shall hold every conversation with the developer in one gateway that owns the terminal."
+
+  condition: "When the gateway session is opened by static state S1 (new run or resume)."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must own the terminal from the gateway session on and run one conversation at a time (SSR-AGG-001)."
+    - "Must tag each message with its source state or node."
+    - "Must log the transcript to .agent/<runID>/gateway.jsonl at IP-AGENT-RUN-WORKSPACE once the run folder exists (S2)."
+    - "Must let no state and no node read or write the terminal directly: S2 clarify, S4 input choice, S5 start confirmation, E3 review and questions, S7 resolution and all notices pass through it."
+
+  post_conditions:
+    - "Every developer interaction passed through the gateway."
+    - "The transcript of the dialog is in gateway.jsonl."

@@ -1,0 +1,24 @@
+SSR-IMG-017:
+  title: "Define the required content of the agent image"
+  kind: "structural"
+  usecase_step_ref: "USC-003: step 5 (image content statement)"
+
+  statement: "The system shall produce an agent image on Ubuntu 26.04 LTS that contains the `claude` CLI (with Node 22 and npm), a non-root user with UID 1001 that is a member of the in-container group `docker`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` in its environment, `tini` as its entrypoint with `dockerd` as its default command, `/workspace` as its working directory, a fixed `/etc/docker/daemon.json` and Python 3.14."
+
+  condition: "For every agent image created by the image creation tool."
+
+  interface_points:
+    - "IP-IMAGE-BUILD-CONTEXT Image build inputs"
+    - "IP-IMAGE-CONTENT-SOURCE Image content source"
+
+  constraints:
+    - "Must define the image content in `Dockerfile.agent` and `requirements.lock` at IP-IMAGE-BUILD-CONTEXT: base image Ubuntu 26.04 LTS (`resolute`), Node 22 and npm from the Ubuntu archive, the `claude` CLI (Claude Code, npm package `@anthropic-ai/claude-code`) on the session command path, Python 3.14 with the hash-pinned Python packages in a venv."
+    - "Must put the Python venv `/opt/venv/bin` first on `PATH` in the image environment."
+    - "Must define a non-root user `agent` with the numeric UID 1001 and a group `agent` with GID 1001 (home directory created, shell `/bin/bash`), equal to the UID of `agent-operator` in `agent-host`. No `USER` instruction is set: the image's default process runs as root."
+    - "Must define the in-container group `docker` (the `group` of the in-container daemon socket in `daemon.json`) and make the user with UID 1001 a member of it, so that the agent workload reaches `/var/run/docker.sock`."
+    - "Must set `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` in the image environment."
+    - "Must set `/usr/bin/tini --` as the image entrypoint and `[\"dockerd\"]` as the default command, so that `tini` is PID 1 and starts `dockerd` as root with no flags; the daemon settings come from `daemon.json` only."
+    - "Must set `/workspace` as the working directory of the image."
+    - "Must write `/etc/docker/daemon.json` (`root:root`, mode 644) in the image with: `default-runtime` `runc`, `bridge` `none`, `iptables` false, `ip6tables` false, `hosts` `unix:///var/run/docker.sock`, `group` `docker`, `data-root` `/var/lib/docker`, `exec-opts` `native.cgroupdriver=cgroupfs`, `no-new-privileges` true; this is not the host `daemon.json` of `agent-host`."
+    - "Open item: no `storage-driver` is set in `daemon.json`; the choice between `overlay2` and `vfs` under gVisor is undecided (marked TODO in `Dockerfile.agent`) and the in-container daemon uses its default driver until it is decided."
+    - "Design decision: the image creation tool does not verify this content after the build (it only confirms that the image exists and that its metadata carries no credential, SFR-IMG-016, SSR-IMG-005); the content is a description of what `Dockerfile.agent` produces."

@@ -1,0 +1,24 @@
+SFR-NET-030:
+  title: "List the released elements read-only"
+  kind: "functional"
+  usecase_step_ref: "USC-004: alt-4"
+
+  statement: "The system shall list the elements of the set released of the agents-net gate with their comments without changing anything."
+
+  condition: "When the tool is invoked as `released`."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+    - "IP-CLI-CREATE-AGENT-NET Developer command-line entrypoint"
+
+  constraints:
+    - "Must write at IP-CLI-CREATE-AGENT-NET one line per element, `<mac> <comment>`, on the standard output and nothing else there; the comment is the container name and is empty for an untagged element, so that the line is `<mac> ` (the MAC, a blank, and nothing)."
+    - "Must write the step lines and debug lines to the error output only."
+    - "Must list nothing and succeed when the gate table does not exist."
+    - "Must change nothing: no table, rule or element is added, modified or deleted."
+    - "Must check privilege and engine and compare the engine state as the other forms do (SFR-NET-002, SSR-NET-001)."
+    - "Must return exit status 0 when the set was read (or is absent), exit status 1 (state NOT_CHECKED) for an invalid invocation or a missing privilege or prerequisite, and exit status 2 (state GATE_INCONSISTENT) when the set cannot be read."
+
+  post_conditions:
+    - "The caller knows every element of released with its container name, or that it carries none."
+    - "The gate is unchanged."

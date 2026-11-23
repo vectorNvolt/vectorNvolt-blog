@@ -1,0 +1,20 @@
+SFR-NET-007:
+  title: "Report success"
+  kind: "functional"
+  usecase_step_ref: "USC-004: step 6, postconditions"
+
+  statement: "The system shall report success of the agent network creation to the Developer, stating that the arming, disarming, gate check, released listing and eviction requests are available."
+
+  condition: "When the verification of the agent network has passed."
+
+  interface_points:
+    - "IP-CLI-CREATE-AGENT-NET Developer command-line entrypoint"
+
+  constraints:
+    - "Must write a success report to the standard output at IP-CLI-CREATE-AGENT-NET."
+    - "Must state in the success report that `arm`, `disarm`, `check-gate`, `released` and `evict` are available at IP-CLI-CREATE-AGENT-NET."
+    - "Must return exit status 0 at IP-CLI-CREATE-AGENT-NET."
+
+  post_conditions:
+    - "The agent network exists and is usable by agent containers."
+    - "The arming, disarming, gate check, released listing and eviction requests are available, shipped in the same tool."

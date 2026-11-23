@@ -1,0 +1,28 @@
+SFR-HOST-005:
+  title: "Create the non-root user agent-operator on the foundation VM"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 3 (exception err-4)"
+  # Changed 2026-11-22: runs directly as root on the VM; the foundation's login user (ubuntu, or the
+  # Lima host user) is no longer removed and is never touched.
+
+  statement: "The system shall create the non-root user agent-operator, with its own group, on the foundation VM."
+
+  condition: "When the foundation preflight (SFR-HOST-014) and the reference hashes (SFR-HOST-013) have succeeded."
+
+  interface_points:
+    - "IP-HOST-EXEC Direct command execution on the foundation VM"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must execute the group and user creation as root directly on the VM through IP-HOST-EXEC."
+    - "Must create the group agent-operator with the numeric GID 1001 first, then the user agent-operator with the numeric UID 1001 and primary GID 1001 (explicit, not the next free ID); either command fails when the ID is already taken, which stops the run."
+    - "Must not remove or modify any other user or group, including the login user of the foundation."
+    - "Must create agent-operator with a home directory and /bin/bash as shell, without any supplementary group beyond its primary group."
+    - "Must create agent-operator without granting it elevated-privilege (sudo) rights and without adding it to the docker group."
+    - "Must, when the group or user creation fails, stop, report the failed step to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 2."
+
+  post_conditions:
+    - "The user agent-operator has the UID 1001 and GID 1001 and no supplementary group beyond its primary group when the creation succeeded."
+    - "No elevated-privilege (sudo) rights have been granted to agent-operator."
+    - "agent-operator is not a member of the docker group."
+    - "The user agent-operator exists on the VM when the creation succeeded; the login user of the foundation is unchanged."

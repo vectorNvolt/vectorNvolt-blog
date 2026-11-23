@@ -1,0 +1,18 @@
+SSR-AGE-008:
+  title: "Bound the resources of every execution"
+  kind: "structural"
+  usecase_step_ref: "USC-005: steps 2, 3, 6"
+
+  statement: "The system shall bound the memory, processor time, process count, run time and output of every execution by ceilings that the profile cannot exceed."
+
+  condition: "For every execution, from creation until the container is removed."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+    - "IP-ENGINE-AUTHZ Engine authorization interface"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show the inspected memory, processor and process-count limits within the tool's ceilings, and the plugin's ceilings equal to them."
+    - "Must show the timeout and `out_max` of the profile within their ceilings."
+    - "Must show the summed limits of concurrent executions within the agent container's bounds, SSR-AGC-012."

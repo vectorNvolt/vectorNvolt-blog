@@ -1,0 +1,9 @@
+SFR-HOST-002:
+  title: "WITHDRAWN 2026-11-22: Confirm no agent-host distro is registered before creation"
+  kind: "functional"
+  status: "withdrawn"
+  withdrawn: "withdrawn 2026-11-22: WSL2 path removed"
+  usecase_step_ref: "USC-001: withdrawn (WSL removed; exceptions err-1, err-8 withdrawn)"
+  # There is no distro to register on the foundation VM. The check that replaces it, in the same
+  # position of the run, is the foundation preflight (SFR-HOST-014, USC-001 step 1).
+  superseded_by: "SFR-HOST-014"

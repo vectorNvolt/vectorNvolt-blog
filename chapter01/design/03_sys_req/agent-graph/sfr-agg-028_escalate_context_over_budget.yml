@@ -1,0 +1,21 @@
+SFR-AGG-028:
+  title: "Escalate a node whose mandatory context exceeds its budget"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 9 (exception err-10)"
+
+  statement: "The system shall escalate at once, without retries, a node whose mandatory context does not fit its budget."
+
+  condition: "When a node reports NODE_FAILED(node, context, reason) because its mandatory context exceeds its budget."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must not retry (E4 failure_policy escalates at once) and must, through the shared escalation path of SFR-AGG-027 (E7 SUSPEND, checkpoint, ESCALATED), name node, budget and the size of the mandatory context."
+    - "Must offer through resolution (S7, SFR-AGG-033) to raise the budget or shorten the reads."
+    - "Must, on the developer's quit, report exit state CONTEXT_OVER_BUDGET with exit status 2."
+
+  post_conditions:
+    - "The node's session was not started."
+    - "The checkpoint is kept."

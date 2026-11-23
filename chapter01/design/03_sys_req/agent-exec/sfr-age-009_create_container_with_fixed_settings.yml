@@ -1,0 +1,22 @@
+SFR-AGE-009:
+  title: "Create the execution container with the fixed settings of its kind"
+  kind: "functional"
+  usecase_step_ref: "USC-005: step 6"
+
+  statement: "The system shall create one execution container with the fixed settings of the profile's kind, without starting it."
+
+  condition: "When the image is present and the locks are held."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+    - "IP-ENGINE-AUTHZ Engine authorization interface"
+
+  constraints:
+    - "Must create the container at IP-INCONTAINER-ENGINE with the settings SSR-AGE-001, SSR-AGE-002, SSR-AGE-003 and SSR-AGE-004 hold, the limits of SSR-AGE-008 and the labels naming the execution and the tool process."
+    - "Must pass every create request through the authorization plugin, which SFR-AGE-010 decides."
+    - "Must name the container after the execution id, and for `install` create both containers before starting either."
+    - "Must set only the environment variables the tool defines plus the profile's `env`."
+
+  post_conditions:
+    - "One created, not started container exists per execution (install: two)."
+    - "The command has not run."

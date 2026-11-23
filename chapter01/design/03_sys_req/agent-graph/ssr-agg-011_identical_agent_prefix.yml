@@ -1,0 +1,18 @@
+SSR-AGG-011:
+  title: "Hold an identical agent-layer prefix across nodes"
+  kind: "structural"
+  usecase_step_ref: "USC-008: step 9, postconditions"
+
+  statement: "The system shall give every cognitive node of a run a byte-identical agent-layer system prompt and the same invariant launch flags."
+
+  condition: "For every run, from the first cognitive node to the last."
+
+  interface_points:
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show that the system prompt file (system.md) is byte-identical for all cognitive nodes and its hashes are equal in all node context records, and that the launch hash is equal for all nodes."
+    - "Must show that the hashed launch part is the invariant flags of the claude launch in USC-008 step 10 (--output-format, --verbose, --model, --effort, --tools, --setting-sources, --strict-mcp-config, --mcp-config, --exclude-dynamic-system-prompt-sections, --append-system-prompt-file system.md); the turn prompt (-p), --allowedTools and --resume differ per node or turn and are excluded."   # proposed: interpretation consistent with USS-008 (design/01_user_story/uss-008_create_agentic_graph_4_process.md, line ~840); hashing the whole command would be unsatisfiable
+    - "Must show that the prefix measurement is accepted against SSR-AGG-018 and SFR-AGG-021."
+    - "Must show that each node's instruction file holds only pool snippets, its step contract and the run facts."

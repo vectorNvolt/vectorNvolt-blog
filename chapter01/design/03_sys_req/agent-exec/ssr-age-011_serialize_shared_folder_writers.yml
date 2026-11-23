@@ -1,0 +1,16 @@
+SSR-AGE-011:
+  title: "Locks serialize writers of shared folders"
+  kind: "structural"
+  usecase_step_ref: "USC-005: step 3, 10"
+
+  statement: "The system shall serialize every writer of an environment folder or the build folder against all other users of it."
+
+  condition: "For every execution that mounts an environment folder or the build folder, from taking the lock until the container is removed."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show an exclusive lock held while the folder is mounted writable and a shared lock while it is mounted read-only."
+    - "Must show the lock released after every outcome, including cancel, timeout and failure."
+    - "Must show no workspace folder written by any execution except those its kind names."

@@ -1,0 +1,22 @@
+SFR-AGG-010:
+  title: "Compile the process into a dynamic state machine"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 6 (exception err-9)"
+
+  statement: "The system shall compile a validated process into a dynamic state machine that has one node per step and only the edges the process defines."
+
+  condition: "When the input is bound."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+
+  constraints:
+    - "Must add no edge, node or state the process does not define, and must use a typed state schema that carries references and short summaries, not payloads (SSR-AGG-005)."
+    - "Must compile the context composition of SFR-AGG-017 into every cognitive node and nothing else into a node."
+    - "Must write the compiled graph to .agent/<runID>/graph.json at IP-AGENT-RUN-WORKSPACE."
+    - "Must, when compilation fails, keep the error and the partial graph in .agent/<runID>/, enter resolution (SFR-AGG-033) and on the developer's quit report BUILD_FAILED with exit status 2."
+
+  post_conditions:
+    - "The compiled graph is recorded in the run folder."
+    - "No node ran when compilation failed."

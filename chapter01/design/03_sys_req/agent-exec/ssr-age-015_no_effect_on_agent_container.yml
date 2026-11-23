@@ -1,0 +1,17 @@
+SSR-AGE-015:
+  title: "Leave the agent container and the host unchanged"
+  kind: "structural"
+  usecase_step_ref: "USC-005: postconditions"
+
+  statement: "The system shall keep an execution from changing the agent container's settings, its network arming or the host."
+
+  condition: "For every execution, from start to end."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show the engine's boundary to the host the isolated runtime (SSR-AGC-001) and the host-side network controls, neither of which an execution can reach."
+    - "Must show the engine's data root in memory with a size limit, and the profile, the image tarball and the plugin policy unchanged by the execution."
+    - "Must show no credential and no engine socket visible in the container."

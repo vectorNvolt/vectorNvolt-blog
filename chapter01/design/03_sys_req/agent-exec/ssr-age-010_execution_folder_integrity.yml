@@ -1,0 +1,16 @@
+SSR-AGE-010:
+  title: "Keep the execution record outside the container's reach and unchanged"
+  kind: "structural"
+  usecase_step_ref: "USC-005: steps 3, 8, 10"
+
+  statement: "The system shall keep the record of every execution in its own folder that the executed code cannot see and that is never deleted."
+
+  condition: "For every execution, from creation of its folder."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show `meta.json`, `result.json`, `stdout.log` and `stderr.log` not mounted into the container."
+    - "Must show `meta.json` written once before the start and unchanged afterwards."
+    - "Must show the folder kept after every outcome, with an execution id that is unique and never reused."

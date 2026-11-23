@@ -1,0 +1,23 @@
+[project]
+name = "package_template"
+version = "0.0.0"
+description = "Placeholder: what the package does"
+requires-python = ">=3.11"
+# Placeholder deps: pin real versions before the first post tag is cut.
+dependencies = [
+    "langgraph",
+    "pyyaml",
+]
+
+[project.scripts]
+package_template = "package_template.main:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+package_template = ["schemas/*.yml"]

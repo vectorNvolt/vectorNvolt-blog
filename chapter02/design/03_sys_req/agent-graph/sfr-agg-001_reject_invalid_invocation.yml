@@ -1,0 +1,22 @@
+SFR-AGG-001:
+  title: "Reject an invalid run invocation"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 1 (exception err-17)"
+
+  statement: "The system shall start a run only for an invocation whose arguments are known and, when a run to resume is named, name a run that has a checkpoint."
+
+  condition: "When the developer starts the run command with an argument other than the resume option, or with a resume option naming no run or a run without a checkpoint."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must write a usage error to the error stream at IP-CLI-AGENT-GRAPH-RUN, report exit state NOT_STARTED and return exit status 1 (proposed, open in USS-008)."
+    - "Must accept no process name on the command line: the process is agreed in the dialog (SFR-AGG-003), the resume option is the only argument."
+    - "Must check the argument syntax first and then the named run folder under .agent/ at IP-AGENT-RUN-WORKSPACE (a read only check that creates nothing there); the error is a usage error on stderr at step 1 and needs no gateway session."
+    - "Must not enter resolution (no S7): err-17 is handled here and ends the command directly. A valid resume option passes on to SFR-AGG-037, which opens the gateway session (S1) and loads the checkpoint."
+
+  post_conditions:
+    - "No run folder, checkpoint or output was created or changed."
+    - "The developer can start the command again with a valid invocation."

@@ -1,0 +1,16 @@
+SSR-AGG-013:
+  title: "Hold the process definition as data"
+  kind: "structural"
+  usecase_step_ref: "USC-008: step 4, step 8"
+
+  statement: "The system shall treat the process definition as data that cannot execute code of its own."
+
+  condition: "For every process file loaded."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-EXECUTION-CONTAINER Ephemeral execution container"
+
+  constraints:
+    - "Must show that a reference in a definition resolves only to an allowlisted function and that an unrestricted dotted-path import is refused."   # not in USC-008 (tech-notes draft 1 / proposed): function allowlist
+    - "Must show that every command of a procedure step runs as an argument list and no shell expands it."   # not in USC-008 (tech-notes draft 1 / proposed): argv-only

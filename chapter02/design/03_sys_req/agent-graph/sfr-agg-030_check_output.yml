@@ -1,0 +1,21 @@
+SFR-AGG-030:
+  title: "Check the output of the run"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 12 (exception err-15)"
+
+  statement: "The system shall accept a run as complete only when every required output target passes its checks and conforms to its template."
+
+  condition: "When the dynamic state machine reports COMPLETED(output_ref) (it reached END) and the execution engine runs E5 output_check."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+
+  constraints:
+    - "Must check each output.target already present in .output/<runID>/ against its checks (for example non_empty, max_words:800) and its template at IP-AGENT-RUN-WORKSPACE. How the targets get into .output/<runID>/ (any copy from the products) is not defined in USC-008 and is open."
+    - "Must, on a failed check, keep the output in .output/<runID>/ marked invalid, suspend through the shared escalation path (E7, SFR-AGG-027) and enter resolution (S7, SFR-AGG-033) offering to fix the cause and restart at the affected node."
+    - "Must, on the developer's quit, report OUTPUT_INVALID with exit status 2."
+
+  post_conditions:
+    - "Failed output is kept for inspection."
+    - "Only a checked output is reported as completed."

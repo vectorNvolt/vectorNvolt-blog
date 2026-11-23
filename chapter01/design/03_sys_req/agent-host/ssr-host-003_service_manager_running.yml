@@ -1,0 +1,16 @@
+SSR-HOST-003:
+  title: "Hold the service manager running on agent-host"
+  kind: "structural"
+  usecase_step_ref: "USC-001: step 8"
+  # Changed 2026-11-22: systemd is part of the stock Ubuntu 26.04 image (foundation contract item 2), not enabled
+  # through wsl.conf. The WSL exception (degraded accepted when user@0.service is the only failed unit) is gone.
+
+  statement: "The system shall hold the service manager of the agent-host VM in the running state."
+
+  condition: "From the verified creation until the VM is removed."
+
+  interface_points:
+    - "IP-HOST-EXEC Direct command execution on the foundation VM"
+
+  constraints:
+    - "Must show the service manager reporting exactly the state running (systemctl is-system-running), checked on the running VM; degraded or any other state is not accepted."

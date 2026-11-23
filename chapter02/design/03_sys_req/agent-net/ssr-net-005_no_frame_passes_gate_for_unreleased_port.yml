@@ -1,0 +1,18 @@
+SSR-NET-005:
+  title: "Let no frame pass the gate for an unreleased port"
+  kind: "structural"
+  usecase_step_ref: "USC-004: step 4, alt-1, alt-2"
+
+  statement: "The system shall let no frame pass the agents-net gate to or from a container port whose agent MAC is not in the set released, and no frame between two unarmed ports."
+
+  condition: "For every container attached to agents-net, from its creation until it is released after the verified arming, and again from its disarm until it is removed."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must show the gate present before any container is attached: it is installed by the creation of agents-net (SFR-NET-025) and not by the arming of a container. The set released is loaded empty by that creation; the verification reads back the set, the chains, the policies, the one accept rule per chain (the ingress rule with the mark condition and the mark clearing, SFR-NET-034) and the iptables rule, but not the elements of released."
+    - "Must show the agent MAC added to released only by the release of its own port (SFR-NET-010), in the same nft transaction that opens its per-port table, and removed by the disarm (SFR-NET-012, SFR-NET-027), by a failure after the release and by the eviction of an untagged or orphaned element (SFR-NET-031)."
+    - "Must show the gate held on the host side, on the bridge device and in DOCKER-USER, where code in the container cannot address, observe or clear it (SSR-NET-002), and independent of anything in the container network namespace, so that it holds although gVisor does not see interfaces added after the start."
+    - "Must refuse an arming request when the gate is missing (SFR-NET-008), so that a network created before the gate existed never carries an agent."
+    - "Must show the gate required rather than set up as a side effect: create_agent_net arm and check-gate read bridge-nf-call-iptables and require 1, and never set it (SSR-NET-001)."

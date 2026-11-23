@@ -1,0 +1,19 @@
+SFR-AGG-040:
+  title: "Start only with no user-level or workspace instruction files"
+  kind: "functional"
+  usecase_step_ref: "USC-008: precondition (proposed)"
+
+  statement: "The system shall start a run only when no instruction or skill file outside the node working set can reach a Claude session."
+
+  condition: "When a run is started. Who ensures this precondition is open (proposed in USC-008, stated as runtime behaviour in USS-008)."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+
+  constraints:
+    - "Must find ~/.claude/CLAUDE.md and ~/.claude/skills/ (under /home/agent/.claude) empty and no CLAUDE.md in /workspace or /workspace/.agent (proposed)."
+    - "Must not depend on this check for node isolation: the session loads only project-level sources from the node working set (SFR-AGG-019). Whether the runtime checks or merely documents the precondition is open."
+
+  post_conditions:
+    - "No instruction source outside the node working set is visible to a node session."

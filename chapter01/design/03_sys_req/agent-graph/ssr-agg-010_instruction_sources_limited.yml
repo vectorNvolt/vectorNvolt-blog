@@ -1,0 +1,17 @@
+SSR-AGG-010:
+  title: "Hold the instruction sources of a node to the pools"
+  kind: "structural"
+  usecase_step_ref: "USC-008: preconditions"
+
+  statement: "The system shall hold the instruction sources a node can load to the files the runtime generated from the pools."
+
+  condition: "For every cognitive node session."
+
+  interface_points:
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show that the user-level instruction file and skill folder of the agent are empty, and that no instruction file exists in /workspace or /workspace/.agent."
+    - "Must show that the session loads only project-level sources from its own node directory; who ensures the empty state is open in USS-008."   # proposed (USC-008 precondition)
+    # open: instruction files or skills in ancestor .claude folders and in the run-folder root are not covered by USC-008

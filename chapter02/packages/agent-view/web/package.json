@@ -1,0 +1,19 @@
+{
+  "name": "agent-view-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser UI for the read-only agent-view waveform + schematic viewer",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "elkjs": "0.12.1",
+    "preact": "10.29.8",
+    "uplot": "1.6.32"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

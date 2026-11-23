@@ -1,0 +1,20 @@
+SSR-AGT-004:
+  title: "Protect run folders and execution records in the output folder"
+  kind: "structural"
+  usecase_step_ref: "USC-009: step 7 (exception exc-4), postconditions"
+
+  statement: "The system shall keep every run folder and every execution record in the output folder unchanged by the agent while the agent can store its own outputs there."
+
+  condition: "For every agent session, from its start to its end."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-TOOL-GUARD-HOOK Tool-call guard hook"
+
+  constraints:
+    - "Must show a direct child `.output/<name>/` other than `exec/` treated as a run folder when `.agent/<name>/` exists, and every write into it, its creation, renaming and removal denied."
+    - "Must show a folder the agent made never becoming a run folder: the runtime creates both run folders exclusively and never reuses one, which SFR-AGG-003 holds."
+    - "Must show every `.output/exec/<execId>/meta.json` written only by the execution tool, denied by the managed policy and by the guard."
+    - "Must show `mv` and `rm` of `.output`, `.output/exec`, an execution folder or a run folder denied, and `cp` or `mv` onto a protected path denied."
+    - "Must show the agent's own folders in `.output/` (e.g. `.output/notes/`) writable."
+    - "Residual risk: `result.json` and the logs are writable by the agent and are authoritative only as the execution tool returns them; an agent-made folder under `.output/exec/` blocks that execution name."

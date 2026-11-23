@@ -1,0 +1,18 @@
+SSR-AGE-012:
+  title: "Define the exit code and cause of every outcome"
+  kind: "structural"
+  usecase_step_ref: "USC-005: steps 9, 10 and exceptions"
+
+  statement: "The system shall report every outcome of an execution by one exit code and one cause that `result.json` records."
+
+  condition: "For every execution whose folder was created."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must use causes `ok`, `exit`, `usage`, `setup`, `denied`, `policy`, `verify`, `busy`, `fetch`, `timeout`, `cancel`, `out_cap` and `oom`, with 125 for the tool's own failures, 124 for timeout, 130 for cancel and 137 for output cap and memory."
+    - "Must show cause `fetch` with the package manager's exit code as exit, and cause `exit` with the command's own exit code."
+    - "Must show `result.json` as the authoritative record, since a command's own exit code can equal one of these values."
+    - "Must show errors before the folder exists (usage) creating nothing, and a killed tool writing no result."

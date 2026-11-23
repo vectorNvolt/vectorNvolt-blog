@@ -1,0 +1,20 @@
+SFR-AGT-003:
+  title: "Deny a command that is not a single simple command"
+  kind: "functional"
+  usecase_step_ref: "USC-009: step 3 (exception exc-2)"
+
+  statement: "The system shall deny a command that is not a single simple command of the guard grammar."
+
+  condition: "When a command contains `; & | < > $ ` ( ) { }`, a backslash, a newline, `&&` or `||` anywhere (also inside quotes), an environment assignment prefix, `cd`, an unquoted `* ? [ ] ~ ! #`, a glob character in a path argument, an unterminated quote, or input the guard cannot parse."
+
+  interface_points:
+    - "IP-TOOL-GUARD-HOOK Tool-call guard hook"
+
+  constraints:
+    - "Must treat single and double quotes as literal and check the argument vector after quote removal, which equals the vector the shell builds."   # open: whether the command tool passes the command unchanged
+    - "Must deny at IP-TOOL-GUARD-HOOK with exit 2 and the reason on the error output for every rejected form, including a pattern with `|` (the agent uses the content-search tool or `rg -e`)."
+    - "Must deny anything it cannot parse; no form is allowed by default."
+
+  post_conditions:
+    - "No compound command, redirection, substitution or expansion ran."
+    - "A single simple command with allowed arguments remains available to the agent."

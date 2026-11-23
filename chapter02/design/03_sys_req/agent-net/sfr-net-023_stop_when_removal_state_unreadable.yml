@@ -1,0 +1,23 @@
+SFR-NET-023:
+  title: "Stop when the state to remove cannot be read"
+  kind: "functional"
+  usecase_step_ref: "USC-007: step 3, alt-1, alt-2, err-6"
+
+  statement: "The system shall survey the network, the per-port tables and the tagged iptables rules before removing anything, and stop with nothing changed when any of them cannot be read."
+
+  condition: "When the privilege and engine checks of the removal tool have held."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine"
+    - "IP-AGENT-NET Agent network control"
+    - "IP-CLI-REMOVE-AGENT-NET Network removal entrypoint"
+
+  constraints:
+    - "Must read whether the network `agents-net` exists, which `as_port_*` netdev tables exist and which iptables rules have a comment starting `agent-net:` before any change."
+    - "Must read the `agents_gate` table (with its set `released`) before any change; the neighbour and forwarding entries of the agent ports are not surveyed, because they go with the bridge and the per-container disarm (SFR-NET-027)."
+    - "Must treat a part that is absent as readable and continue with what is there (idempotent run)."
+    - "Must, when the network, the nftables tables or the iptables chains cannot be read, write a failure report to stderr and return `exit_code: 1`, state `NOT_REMOVED`, at IP-CLI-REMOVE-AGENT-NET."
+    - "Must show nothing changed when a read fails."
+
+  post_conditions:
+    - "Nothing has been changed when a read failed."

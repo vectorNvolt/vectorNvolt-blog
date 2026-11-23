@@ -1,0 +1,21 @@
+SFR-AGE-006:
+  title: "Remove stale execution containers at tool start"
+  kind: "functional"
+  usecase_step_ref: "USC-005: step 3 (exception exc-13)"
+
+  statement: "The system shall remove execution containers whose creating tool process no longer exists."
+
+  condition: "When the execution tool starts and finds containers labelled as executions whose recorded tool process id is gone."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+
+  constraints:
+    - "Must select the containers at IP-INCONTAINER-ENGINE by the execution label and a process id that no longer exists, and remove exactly those."
+    - "Must leave containers of a running tool process untouched."
+    - "Must treat exc-13 as anchored at step 8, where the tool is killed, with the removal done at step 3 of the next call."
+    - "Must not write `result.json` for the killed call."
+
+  post_conditions:
+    - "No stale execution container remains in the engine."
+    - "Running executions of other tool processes continue."

@@ -1,0 +1,22 @@
+SFR-AGG-002:
+  title: "Check the start preconditions of a new run"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 2 (exceptions err-1, err-2)"
+
+  statement: "The system shall start a new run only when no other run is active in the agent and at least one process file is present."
+
+  condition: "When the invocation has passed the argument check (SFR-AGG-001) without a resume option and the gateway session of the new run is open (static state S1)."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must open the gateway session, which SSR-AGG-001 holds, before it checks anything, so that every later message to the developer passes through it."
+    - "Must detect an active run of the same agent entity from the run state in .agent/ at IP-AGENT-RUN-WORKSPACE, never from the command line; a second run is not started (SSR-AGG-002)."
+    - "Must list the process files in .process/ at IP-AGENT-RUN-WORKSPACE and find none or more than none before it moves on."
+    - "Must, when a precondition fails, enter resolution (SFR-AGG-033) naming the active run or the missing process file; on the developer's quit it must report NOT_STARTED with exit status 1."
+
+  post_conditions:
+    - "No run folder was created for the refused run and no process was started."
+    - "The developer can wait, add a process file and re-enter at the start."

@@ -1,0 +1,17 @@
+SSR-AGE-004:
+  title: "Bound what an execution container can write"
+  kind: "structural"
+  usecase_step_ref: "USC-005: step 8"
+
+  statement: "The system shall allow an execution container to write only its own output folder and size-limited scratch areas."
+
+  condition: "For every running execution container."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show writable only `$OUT` (the own `out/`), and the memory-backed `/work`, `/tmp` and the home folder with a size limit each, all lost when the container ends; plus the build folder for kind `build`, `dl/` for the fetch container of `install` and the target environment folder for the install container, as SSR-AGE-003 states."
+    - "Must show source, environment folders (except the target of `install`), the build folder (except for `build`) and `in/` read-only."
+    - "Must show the written size of `out/` held to `out_max` by SFR-AGE-013; for kind `build` `out_max` also covers the build folder."

@@ -1,0 +1,17 @@
+SSR-AGE-014:
+  title: "Fix the kind model in the tool"
+  kind: "structural"
+  usecase_step_ref: "USC-005: steps 2, 6; USC-009: steps 4-6"
+
+  statement: "The system shall fix the mounts, network and writable areas of each kind in the tool, where no profile can change them."
+
+  condition: "For every call of the execution tool."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show kinds `code`, `build` and `install` differing only in the points of USC-005 alt-1 and alt-2, and kind `tool` with its fixed command line, input filter and mounts, which SSR-AGT-006 holds."
+    - "Must show a profile naming only image, kind, `requires_build`, limits, `tmp_exec`, environment, argument lists, accepted inputs and timeout, never a mount or a network."
+    - "Must show an unknown profile field rejected, SFR-AGE-002."

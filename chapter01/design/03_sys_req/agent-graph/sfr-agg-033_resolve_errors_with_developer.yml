@@ -1,0 +1,22 @@
+SFR-AGG-033:
+  title: "Resolve an error together with the developer"
+  kind: "functional"
+  usecase_step_ref: "USC-008: alternative alt-6"
+
+  statement: "The system shall resolve an error together with the developer instead of ending the run."
+
+  condition: "When an exception flow of S1-S6 other than err-3 (intent rejection, exit 3 via S8), err-16 (interruption, suspension) and err-17 (usage error, exit 1, SFR-AGG-001) occurs, or the execution escalates (E7 sends ESCALATED(reason)) into static state S7."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must explain the error through the gateway by a Claude instance at IP-CLAUDE-CLI, propose fixes and apply a fix only after the developer approved that change."
+    - "Must change .process/, .input/ or identity/ at IP-AGENT-RUN-WORKSPACE only in resolution, record each change in .agent/<runID>/resolution/<n>/ with transcript, change and hashes, and touch no other path."
+    - "Must end the run only on the developer's explicit quit (SFR-AGG-035)."
+
+  post_conditions:
+    - "Every change has an approval and a record."
+    - "The run is still open until the developer quits."

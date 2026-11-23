@@ -1,0 +1,24 @@
+SFR-NET-024:
+  title: "Limit the layer 3 destinations of the container"
+  kind: "functional"
+  usecase_step_ref: "USC-004: alt-1"
+
+  statement: "The system shall limit the frames of a released container port to the bridge of the agent network as the only layer 3 destination."
+
+  condition: "When the port of the container is released."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must accept ingress frames of the port (IPv4) only when addressed to the bridge MAC, so that the container cannot address another agent directly at IP-AGENT-NET."
+    - "Must accept ingress broadcast ARP requests of the container only for the bridge IP, with the sender MAC and IP pinned to the declared pair."
+    - "Must accept egress frames of the port only when sent from the bridge MAC; egress ARP from the bridge is limited to replies addressed to the agent MAC."
+    - "Must not rely on an ARP reply rule from the container: the host never sends ARP requests to the container because it holds a permanent neighbour entry for it (SFR-NET-009)."
+    - "Must drop IPv6 and all other frame types, by the policy drop of both chains of the port table."
+    - "Must have both ingress accept rules set the port mark (bit 0x10000000) as well as accept, so that the gate accepts the frame (SFR-NET-034); the egress accept rules and the closed port table carry no mark rule."
+    - "Must add these accept rules in the same atomic nft -f as the source identity rules (SFR-NET-010), never earlier."
+
+  post_conditions:
+    - "The container reaches the network only through the bridge."
+    - "No IPv6 frame and no frame of another type passes the port."

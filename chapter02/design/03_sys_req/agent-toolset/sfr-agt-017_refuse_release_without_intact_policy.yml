@@ -1,0 +1,20 @@
+SFR-AGT-017:
+  title: "Refuse release of an agent without an intact policy bundle"
+  kind: "functional"
+  usecase_step_ref: "USC-009: precondition (exception exc-15); USC-002 steps 3, 4, 9"
+
+  statement: "The system shall not release an agent container whose policy bundle is missing, not mounted read-only, or writable by the agent."
+
+  condition: "When the creation of an agent container verifies its final state."
+
+  interface_points:
+    - "IP-CLAUDE-POLICY-BUNDLE Agent policy bundle"
+
+  constraints:
+    - "Must write the bundle at every creation from the operator's source into the per-agent root-owned host folder and mount it read-only at IP-CLAUDE-POLICY-BUNDLE."
+    - "Must check the inspected mount, owner `root:root`, mode and a write test as uid 1001, and a static guard binary."   # open: new check in the final verification; fourth mount (SSR-AGC-004)
+    - "Must fail creation with a distinct status, which SFR-AGC-011 holds."
+
+  post_conditions:
+    - "No session started in a container without an intact bundle."
+    - "A recreated container with an intact bundle is released."

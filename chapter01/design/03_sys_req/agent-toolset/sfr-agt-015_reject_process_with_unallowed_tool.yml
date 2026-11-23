@@ -1,0 +1,21 @@
+SFR-AGT-015:
+  title: "Reject a process that names an unallowed tool or an invalid profile"
+  kind: "functional"
+  usecase_step_ref: "USC-009: alternatives alt-3, alt-6 (exception exc-14)"
+
+  statement: "The system shall refuse to start a process whose tool list leaves the platform allowlist or whose runtime profiles are missing or invalid."
+
+  condition: "When the agent-graph runtime checks a process before the run."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+
+  constraints:
+    - "Must check every listed tool against the platform allowlist."   # open: allowlist location
+    - "Must check every runtime profile against the profile list from IP-EXEC-TOOL-CLI (SFR-AGT-012)."   # open: runtime profiles not in the schema
+    - "Must report the refusal as a pre-run error at IP-CLI-AGENT-GRAPH-RUN, which SFR-AGG-005 handles."
+
+  post_conditions:
+    - "No session started for the refused process."
+    - "A process within the allowlist with valid profiles can start."

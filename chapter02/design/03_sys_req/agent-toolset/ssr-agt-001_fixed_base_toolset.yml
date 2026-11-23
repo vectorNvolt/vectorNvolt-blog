@@ -1,0 +1,19 @@
+SSR-AGT-001:
+  title: "Hold the agent to a fixed base toolset"
+  kind: "structural"
+  usecase_step_ref: "USC-009: step 2, postconditions"
+
+  statement: "The system shall give the agent only the base toolset: read, file search, content search, edit, write, task planning and the guarded command tool."
+
+  condition: "For every agent session, interactive or cognitive step, from its start to its end."
+
+  interface_points:
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-CLAUDE-POLICY-BUNDLE Agent policy bundle"
+
+  constraints:
+    - "Must show web fetch and search, subagents, notebook edits and every externally served tool denied by the managed policy at IP-CLAUDE-POLICY-BUNDLE, also when a session flag or workspace setting enables them."   # open: how to forbid all externally served tools
+    - "Must show no externally served tool server started in any session."
+    - "Must show the session program pinned, root-owned, started by absolute path, with its self-update disabled."
+    - "Must show bypass of the permission mode disabled."
+

@@ -1,0 +1,16 @@
+SSR-AGG-002:
+  title: "Hold one active run per agent"
+  kind: "structural"
+  usecase_step_ref: "USC-008: step 2 (exception err-2)"
+
+  statement: "The system shall hold at most one active run in an agent entity."
+
+  condition: "For every agent entity, from the start of a run to its exit or suspension."
+
+  interface_points:
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show that a second start in the same agent finds the active run in .agent/ at IP-AGENT-RUN-WORKSPACE and does not start a run (SFR-AGG-002)."
+    - "Must show that a suspended run no longer counts as active."

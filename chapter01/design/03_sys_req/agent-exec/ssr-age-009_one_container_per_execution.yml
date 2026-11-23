@@ -1,0 +1,16 @@
+SSR-AGE-009:
+  title: "One throwaway container per execution"
+  kind: "structural"
+  usecase_step_ref: "USC-005: steps 6, 9, 10"
+
+  statement: "The system shall give every execution its own container that exists only for that execution."
+
+  condition: "For every execution, from creation until the result is written."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+
+  constraints:
+    - "Must show the container named after the execution id (install: also the fetch container) with auto-remove set and the labels of the execution and the tool process."
+    - "Must show no container reused by a second execution and none left after any outcome, apart from a killed tool, which SFR-AGE-006 cleans."
+    - "Must show no state of the container (scratch areas, home) surviving into another execution."

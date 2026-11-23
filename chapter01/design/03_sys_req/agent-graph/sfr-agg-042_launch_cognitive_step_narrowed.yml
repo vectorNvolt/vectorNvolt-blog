@@ -1,0 +1,22 @@
+SFR-AGG-042:
+  title: "Launch a cognitive step with a narrowed tool surface"
+  kind: "functional"
+  usecase_step_ref: "USC-009: alternative alt-3"
+
+  statement: "The system shall start each cognitive step with only the tools, permissions and profiles its process grants, inside the managed policy."
+
+  condition: "When the agent-graph runtime starts a cognitive step."
+
+  interface_points:
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must start the session at IP-CLAUDE-CLI by absolute path with the process's tool list (default read and write; the command tool only when listed), per-step allow rules, no externally served tools, and its current directory in the run's `active/`."   # open: whether per-step allow rules narrow; command-tool default
+    - "Must set the session mode `cognitive` and the permitted-profile list from the process's runtime profiles, which SFR-AGT-006 enforces."
+    - "Must grant writes only to the step's work folder, which SSR-AGG-007 holds."
+    - "Must copy products from an execution folder into the step work folder when the step needs them."   # open: copy of exec products
+
+  post_conditions:
+    - "The step had no tool, permission or profile beyond its grant and the managed policy."
+    - "The step can still read its bound inputs and run its permitted profiles."

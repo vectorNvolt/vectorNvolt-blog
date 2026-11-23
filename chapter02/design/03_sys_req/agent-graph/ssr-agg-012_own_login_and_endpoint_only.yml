@@ -1,0 +1,16 @@
+SSR-AGG-012:
+  title: "Hold the model access to the agent's own login and endpoint"
+  kind: "structural"
+  usecase_step_ref: "USC-008: preconditions"
+
+  statement: "The system shall reach the language model only through the agent's own subscription login and the allowed endpoint."
+
+  condition: "For every run, from the first Claude instance to the exit."
+
+  interface_points:
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+
+  constraints:
+    - "Must show that the runtime uses no model broker and no API key, only the client in /home/agent/.claude."   # not in USC-008 (tech-notes draft 1 / proposed): "no API key"
+    - "Must show that the outbound destinations of the runtime for model access are those of the egress allowlist of the agent network (USS-004), for the Claude endpoint."   # open: USS-002 lists two hostnames, api.anthropic.com and platform.claude.com
+    - "Must show that every Claude instance of the run (clarify, note questions, resolution, nodes) uses the same login."

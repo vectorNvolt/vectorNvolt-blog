@@ -1,0 +1,22 @@
+# result.json written by a cognitive node in its working directory (decision Q6).
+type: object
+required: [status]
+additionalProperties: false
+properties:
+  status: {enum: [done, question]}
+  outcome: {type: [string, "null"]}
+  question: {type: [string, "null"]}
+  handoff:
+    type: object
+    additionalProperties: false
+    properties:
+      done: {type: string}
+      decisions:
+        type: array
+        items: {type: string}
+      open_points:
+        type: array
+        items: {type: string}
+  warnings:
+    type: array
+    items: {type: string}

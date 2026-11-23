@@ -1,0 +1,22 @@
+SFR-AGC-023:
+  title: "Check the Workspace-Agents root before anything is created"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 2 (preconditions: Workspace-Agents root; exception err-6)"
+
+  statement: "The system shall confirm that the Workspace-Agents root exists, is a directory and is owned by the operating user before it creates anything."
+
+  condition: "When the agent identity has been validated and the runtime registration verified."
+
+  interface_points:
+    - "IP-AGENT-WORKSPACE-FS Agent workspace folder"
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must check at IP-AGENT-WORKSPACE-FS that the Workspace-Agents root exists, is a directory and not a symbolic link, and is owned by the operating user, before any workspace folder or container is created."
+    - "Must take the root path from the environment variable AGENT_SANDBOX_WORKSPACE_ROOT when it is set to a non-blank value (surrounding whitespace removed), otherwise use /home/agent-operator/Workspace-Agents; the workspace folder of an agent is <root>/<agentID>. The owner check compares the uid of the root with 1001."
+    - "Must, when a check fails, write the failed check to the error output at IP-CLI-CREATE-AGENT-CONTAINER, return exit status 1 and make no change, which SFR-AGC-011 defines."
+    - "Must not create, repair or change the ownership of the root, which SSR-AGC-008 holds: the root is a prerequisite that the developer creates manually as the operating user before the first run, not created by any tool."
+
+  post_conditions:
+    - "No workspace folder, container or network attachment has been created, and the root is unchanged, when a check failed."
+    - "The creation sequence continues when the root passed all checks."

@@ -1,0 +1,21 @@
+SFR-AGE-005:
+  title: "Refuse an execution when a lock or the resource bounds would be exceeded"
+  kind: "functional"
+  usecase_step_ref: "USC-005: step 3 (exception exc-10)"
+
+  statement: "The system shall refuse an execution rather than wait unboundedly when it cannot take its locks or its share of the agent container's resources."
+
+  condition: "When a required lock is held by another execution, or the summed limits of the running executions plus this one would exceed the agent container's bounds."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must take an exclusive lock on a writable environment folder or on the build folder and a shared lock on a read-only one, before creating a container."
+    - "Must exit with status 125, cause `busy`, at IP-EXEC-TOOL-CLI, after no more than the bound for waiting (value TBD), before the execution folder is created, so that no execution folder and no `result.json` exist for the refused call."
+    - "Must count the limits of all concurrent tool processes against the bounds of SSR-AGC-012, not only its own."
+
+  post_conditions:
+    - "No container was started and no lock stays held by the refused call."
+    - "The running executions are unaffected."

@@ -1,0 +1,21 @@
+SFR-AGE-003:
+  title: "Stop with nothing started when the in-container engine is unreachable"
+  kind: "functional"
+  usecase_step_ref: "USC-005: step 3 (exception exc-2)"
+
+  statement: "The system shall stop with nothing started when the in-container engine cannot be reached or refuses every request."
+
+  condition: "When the engine socket is missing or not reachable, or the authorization plugin is not running and the engine fails every request."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+
+  constraints:
+    - "Must check reachability by a ping at IP-INCONTAINER-ENGINE before any other engine request of the call."
+    - "Must exit with status 125, cause `setup` (or `denied`), with a diagnostic at IP-EXEC-TOOL-CLI."
+    - "Must show the engine failing closed while the plugin is down: no request is allowed without the plugin, which SSR-AGE-007 holds."
+
+  post_conditions:
+    - "No container was created or started."
+    - "A later call succeeds once the init supervisor has restarted the plugin."

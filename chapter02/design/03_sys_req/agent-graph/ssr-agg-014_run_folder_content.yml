@@ -1,0 +1,16 @@
+SSR-AGG-014:
+  title: "Hold the run folder complete"
+  kind: "structural"
+  usecase_step_ref: "USC-008: postconditions"
+
+  statement: "The system shall hold in the run folder the records needed to inspect and resume a run."
+
+  condition: "For every run, from its creation until it is removed."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show .agent/<runID>/ holds binding.json, index.json, graph.json, gateway.jsonl, run_facts.jsonl, the command and status history, the checkpoint and, per cognitive node, nodes/<nodeID>/ with system.md, CLAUDE.md, .claude/skills/, context.md, context.json and transcript.jsonl."
+    - "Must show that .agent/<runID>/ also holds resolution/<n>/ for every resolution change, overrides.json when run overrides exist, and work/ or archive/work.tar.gz per runtime.work_products, and that .output/<runID>/ holds the output and report.md."
+    - "Must show that nodes/ is kept whatever the work setting says."

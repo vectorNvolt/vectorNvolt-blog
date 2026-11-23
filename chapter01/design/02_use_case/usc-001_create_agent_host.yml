@@ -1,0 +1,276 @@
+# ==============================================================================
+# USC-001 — derived from USS-001 (design/01_user_story/uss-001_create_agent_host.md)
+# Interaction points and channels are defined in
+# design/00_system_boundary/interaction_points.yml (items marked `# proposed`
+# there are not yet confirmed by USS-001).
+# Derived, not stated in USS-001: exit codes 1/2 (proposed `exit_code` of
+# IP-CLI-CREATE-AGENT-HOST), the `exit_state` values, the foundation preflight and the
+# argument rejection. USS-001 only requires "reports success or failure".
+#
+# Revision 2026-11-22 (design/local-vm-migration-plan.md): the WSL2 path is removed. The host is the Ubuntu 26.04
+# foundation VM itself (Lima on macOS/Linux, Multipass on Windows, cloud-init on a cloud provider; config
+# files vm/agent-host.lima.yaml and vm/agent-host.cloud-init.yaml, single source vm/foundation.sh). `create_agent_host`
+# is a native Linux binary that runs inside that VM as root and customizes it. The WSL steps and the keep-alive
+# are removed; step 1 now includes the foundation preflight and step 4 sets the hostname.
+#
+# Revision 2026-11-23: the WSL steps were removed and the flow renumbered contiguously to 1..9 (the tool prints
+# [1/9] .. [9/9]). Mapping old -> new: 1->1, 3->2, 6->3, 7->4, 9->5, 10->6, 11->7, 12->8, 13->9.
+# Added the same day: stricter preflight (step 1), the unattended-upgrades blacklist (step 5), more verify checks
+# (step 8) and the done marker /etc/agent-host (step 9).
+# ==============================================================================
+
+USC-001:
+  title: "Configure the foundation VM as agent-host with one command"
+  summary: "The developer runs a single native Linux Go executable as root inside the Ubuntu 26.04 foundation VM. It checks the foundation, creates the non-root user `agent-operator` (UID/GID 1001), sets the hostname `agent-host`, installs all required dependencies, registers the gVisor runtime in Docker, installs the seven Linux tools `create_agent_container`, `remove_agent_container`, `create_agent_net`, `remove_agent_net`, `agent_lifecycle`, `enter_agent` and `refresh_endpoints` and the two lifecycle systemd units (`agent-restore.service`, `agent-guard.service`, enabled and running), and verifies the result, so agents run apart from the reader's machine. The VM boundary (own kernel, no host mounts, key-only SSH) replaces the former WSL distro boundary."
+
+  actors:
+    primary: "Developer"
+    supporting:
+      - "Provisioning tool (Go executable `create_agent_host`, native linux build, runs as root in the VM)"
+      - "Foundation VM (`agent-host`: Ubuntu 26.04 LTS created by Lima, Multipass or cloud-init from `vm/`)"
+      - "VM tool on the reader's machine (Lima `limactl` or Multipass `multipass`; used by the developer to reach the VM, not by the Provisioning tool)"
+
+  interaction_points:
+    - ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+      direction: "inbound"
+      type: "cli_entrypoint"
+      boundary: "Developer shell in the VM (`limactl shell agent-host`, `multipass shell agent-host`, or SSH, IP-VM-SSH) -> Go executable (`sudo create_agent_host`)"
+      transport: "POSIX process execution / standard I/O streams"
+      role: "primary entry (command invocation) and exit (success/failure report, exit code)"
+    - ip_ref: "IP-FOUNDATION-MARKER"
+      direction: "outbound"
+      type: "filesystem"
+      boundary: "Go process -> `/etc/agent-foundation` in the VM (written by `vm/foundation.sh`)"
+      transport: "POSIX file read"
+      role: "preflight: the tool reads the marker and requires `FOUNDATION_VERSION=1`"
+    - ip_ref: "IP-DIST-ARTIFACT"
+      direction: "outbound"
+      type: "filesystem"
+      boundary: "Go process -> VM filesystem (the folder the executable is run from, or `AGENT_HOST_TOOLS_DIR`: `create_agent_container`, `remove_agent_container`, `create_agent_net`, `remove_agent_net`, `agent_lifecycle`, `enter_agent`, `refresh_endpoints`, and `endpoints.json`)"
+      transport: "POSIX file read"
+      role: "tool reads the seven linux builds and computes the SHA-256 of each as its reference hash, and reads and validates `endpoints.json`"
+    - ip_ref: "IP-HOST-EXEC"
+      direction: "outbound"
+      type: "subprocess_cli"
+      boundary: "Go process -> child processes on the same VM (os/exec, no wrapper)"
+      transport: "Anonymous pipes (stdio) to a child process"
+      role: "tool runs every configuration, installation and verification command directly on the VM as root, or as `agent-operator` through `runuser` for the unprivileged checks"
+
+  preconditions:
+    - "A foundation VM exists, created from `vm/agent-host.lima.yaml` (macOS / Linux, Lima) or `vm/agent-host.cloud-init.yaml` (Windows, Multipass; cloud providers) and booted: Ubuntu 26.04 LTS, systemd running, cloud-init done, a login user with passwordless `sudo`, `git`, `ca-certificates`, `curl`, `build-essential` and the pinned Go toolchain installed, no Docker, no host mounts, and the marker `/etc/agent-foundation` containing `FOUNDATION_VERSION=1` (`vm/check-foundation.sh` shows what is missing)"
+    - "The developer has a shell in the VM (`limactl shell agent-host`, `multipass shell agent-host`, or SSH with the developer's own key) and the repository checkout is in the VM"
+    - "All Go executables are built natively inside the VM (the pinned Go toolchain lives there), `GOOS=linux`, `CGO_ENABLED=0`; nothing is built on the reader's machine and nothing is cross-compiled. Four modules into `dist/` at the repo root: `packages/agent-host` -> `create_agent_host`; `packages/agent-image` -> `create_agent_image` (USC-003; neither read nor installed by `create_agent_host`); `packages/agent-net` -> `create_agent_net`, `remove_agent_net`, `refresh_endpoints`; `packages/agent-sandbox` -> `create_agent_container`, `remove_agent_container`, `agent_lifecycle`, `enter_agent`. `create_agent_host` is run from the folder holding the seven tool builds and `endpoints.json`, together with `Dockerfile.agent` and `requirements.lock` (USS-003)"
+    - "No other user or group holds the UID or GID 1001"
+    - "Network access from the VM to the package sources needed for the dependencies (incl. the gVisor apt repository) and to the Docker registry (the acceptance check pulls `hello-world`)"
+
+  main_flow:
+    - step: 1
+      actor: "Developer"
+      action: "Runs `sudo create_agent_host` (no arguments; any argument prints the usage and returns `exit_code: 1`, see err-9) in the VM. The Provisioning tool then checks the foundation before it runs any other command: the binary runs on Linux, the effective user is root, and `/etc/agent-foundation` exists and contains the line `FOUNDATION_VERSION=1` (SFR-HOST-014). It also refuses, with `exit_code: 1` and state `NOT_CREATED`, when the marker lacks `UBUNTU=26.04`, when `/proc/mounts` lists a `virtiofs`, `9p`, `sshfs`, `fuse.sshfs` or `fuse.reverse-sshfs` mount, when `/etc/agent-host` (the done marker) exists, when the user `agent-operator` exists, or when UID or GID 1001 is taken. A rerun is refused, not repaired. It changes nothing in this step."
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "command invocation `create_agent_host`, args: [] — Developer -> Provisioning tool"
+      further_interaction_points:
+        - ip_ref: "IP-FOUNDATION-MARKER"
+          channel: "CHAN-FS-FOUNDATION"
+          object_flow: "file bytes of `/etc/agent-foundation` — VM filesystem -> Provisioning tool"
+    - step: 2
+      actor: "Provisioning tool"
+      action: "Reads the seven tools `create_agent_container`, `remove_agent_container`, `create_agent_net`, `remove_agent_net`, `agent_lifecycle`, `enter_agent` and `refresh_endpoints` from the folder it is run from (or `AGENT_HOST_TOOLS_DIR`) and computes the SHA-256 of each (reference hashes). Also reads `endpoints.json` from the same folder and validates it (JSON `{\"endpoints\":[...]}`, non-empty list of unique host names, no unknown keys). Done before any change so a missing build or a missing or invalid `endpoints.json` aborts early (ordering derived, not stated in USS-001)."
+      interaction_point:
+        ip_ref: "IP-DIST-ARTIFACT"
+        channel: "CHAN-FS-DIST"
+        object_flow: "file bytes of `create_agent_container`, `remove_agent_container`, `create_agent_net`, `remove_agent_net`, `agent_lifecycle`, `enter_agent`, `refresh_endpoints` and `endpoints.json` (in the folder the tool runs from) — VM filesystem -> Provisioning tool"
+    - step: 3
+      actor: "Provisioning tool"
+      action: "Runs operation `host_exec` as root to create the group `agent-operator` with GID 1001 (`groupadd --gid 1001`) and then the non-root user `agent-operator` (`useradd --create-home --shell /bin/bash --uid 1001 --gid 1001`; no sudo, not in the `docker` group, no supplementary group beyond its primary group). The IDs are explicit, not the next free ones, and identical to the non-root image user in USS-003; each command fails when its ID is already taken. The login user of the foundation (`ubuntu`, or the Lima host user) is neither removed nor changed."
+      interaction_point:
+        ip_ref: "IP-HOST-EXEC"
+        channel: "CHAN-HOST-EXEC"
+        object_flow: "`/usr/sbin/groupadd --gid 1001 agent-operator`, then `/usr/sbin/useradd --create-home --shell /bin/bash --uid 1001 --gid 1001 agent-operator` — Provisioning tool -> VM"
+    - step: 4
+      actor: "Provisioning tool"
+      action:
+        - "Runs operation `host_exec` as root to set the hostname `agent-host` (SFR-HOST-015):"
+        - "`hostnamectl set-hostname agent-host`"
+        - "creates `/etc/cloud/cloud.cfg.d` if missing and writes `/etc/cloud/cloud.cfg.d/99-agent-host-hostname.cfg` (`root:root`, mode 644, atomic replace) with `preserve_hostname: true`, so cloud-init does not reset the name at the next boot"
+        - "appends `127.0.1.1 agent-host` to `/etc/hosts` only when no entry names `agent-host` yet (idempotent; avoids sudo resolver warnings)"
+        - "Replaces the former `/etc/wsl.conf` step: there is no automount, interop, `[user] default` or `[boot] systemd` setting to write."
+      interaction_point:
+        ip_ref: "IP-HOST-EXEC"
+        channel: "CHAN-HOST-EXEC"
+        object_flow: "`/usr/bin/hostnamectl set-hostname agent-host`; `/bin/mkdir -p /etc/cloud/cloud.cfg.d`; `/bin/sh -c 't=\"$1.tmp\" && cat > \"$t\" && chown root:root \"$t\" && chmod \"$2\" \"$t\" && mv -f \"$t\" \"$1\"' sh /etc/cloud/cloud.cfg.d/99-agent-host-hostname.cfg 644` with the drop-in text on stdin; the `/etc/hosts` append — Provisioning tool -> VM"
+    - step: 5
+      actor: "Provisioning tool"
+      action:
+        - "Runs operation `host_exec` as root to wait for systemd to finish starting (`systemctl is-system-running --wait`, at most 120 s; a degraded result is tolerated), then install the dependencies on the VM with `install_deps.sh` piped to `bash -s`. The 12 dependencies below are 13 packages:"
+        - "ca-certificates, curl and gnupg (used to fetch the gVisor apt repository key and check it before the repository is trusted)"
+        - "Docker engine (Ubuntu archive packages `docker.io` and `docker-buildx`; `docker-buildx` provides BuildKit, which `create_agent_image` needs for `docker build --progress=plain`, as the legacy builder is deprecated); the service is enabled and started (`systemctl enable --now docker`)"
+        - "gVisor (`runsc`) from the gVisor apt repository; the key downloaded from `https://gvisor.dev/archive.key` must have the pinned primary key fingerprint (trust on first use; override `AGENT_HOST_GVISOR_KEY_FINGERPRINT`), otherwise the run stops and the repository is not trusted; apt then checks the packages against that key (signed-by)"
+        - "Python 3"
+        - "gnome-keyring"
+        - "git (on `agent-host` only; not in the agent container)"
+        - "tar"
+        - "nftables (`nft`; used by `create_agent_net arm` (USS-004) for per-port netdev tables)"
+        - "iptables (host-side `DOCKER-USER` / `INPUT` rules set by `create_agent_net` (USS-004))"
+        - "iproute2 (`ip` and `bridge`; used by `create_agent_net` (USS-004) for the bridge port flags, the static FDB entry and the veth lookup)"
+        - "Writes `/etc/apt/apt.conf.d/51agent-host-no-docker-upgrade` (`root:root`, mode 644) that blacklists `docker.io`, `docker-buildx`, `containerd`, `runc` and `runsc` from unattended-upgrades, so the container stack is not upgraded behind the tool's back"
+        - "No `/mnt/<drive>` cleanup and no `resolv.conf` or systemd-resolved handling any more (WSL only)."
+      interaction_point:
+        ip_ref: "IP-HOST-EXEC"
+        channel: "CHAN-HOST-EXEC"
+        object_flow: "`systemctl is-system-running --wait`, then `/bin/bash -s -- <gvisor key fingerprint>` with `install_deps.sh` on stdin — Provisioning tool -> VM"
+    - step: 6
+      actor: "Provisioning tool"
+      action:
+        - "Runs operation `host_exec` as root to register `runsc` as a Docker runtime and apply it:"
+        - "`/usr/local/bin` is made `root:root` mode 755 and the packaged `/usr/bin/runsc` is copied (not symlinked) to `/usr/local/bin/runsc`, `root:root` mode 755"
+        - "`runsc install --runtime=runsc -- <runtimeArgs>` (writes the runtime into `/etc/docker/daemon.json`)"
+        - "`runsc` is registered in `/etc/docker/daemon.json` as a runtime with path `/usr/local/bin/runsc` and exactly these runtimeArgs: `--platform=systrap`, `--network=sandbox`, `--net-raw=false`, `--allow-flag-override=false`, `--overlay2=root:memory`, `--file-access=exclusive`, `--file-access-mounts=shared`, `--directfs=false`"
+        - "`/etc/docker/daemon.json` is made `root:root` mode 644, so it is not writable by `agent-operator`"
+        - "Before the restart, writes `/etc/modules-load.d/agent-host.conf` (`br_netfilter`) and `/etc/sysctl.d/90-agent-host-bridge.conf` (`net.bridge.bridge-nf-call-iptables = 1`, `net.bridge.bridge-nf-call-ip6tables = 1`), both `root:root` mode 644, then runs `modprobe br_netfilter` and `sysctl -p /etc/sysctl.d/90-agent-host-bridge.conf`, because agent-net only reads `bridge-nf-call-iptables` and a stock cloud image does not load the module"
+        - "`systemctl restart docker`"
+        - "USS-001 is the only owner of this registration; other USSs never touch `daemon.json`."
+      interaction_point:
+        ip_ref: "IP-HOST-EXEC"
+        channel: "CHAN-HOST-EXEC"
+        object_flow: "`/usr/local/bin/runsc install --runtime=runsc -- <args>`, then `/usr/bin/systemctl restart docker` — Provisioning tool -> VM"
+    - step: 7
+      actor: "Provisioning tool"
+      action:
+        - "For each `<name>` in `create_agent_container`, `remove_agent_container` (USS-002, USS-006), `create_agent_net`, `remove_agent_net` (USS-004, USS-007), `agent_lifecycle` (restore and guard), `enter_agent`, `refresh_endpoints`: runs operation `host_install_stdin` to install it into `/usr/local/bin/` as `root:root`, mode 755 (they run as root, so only root may replace them; root invokes the installed tools by their absolute path `/usr/local/bin/<name>`):"
+        - "`/bin/sh -c 't=\"$1.tmp\" && cat > \"$t\" && chown root:root \"$t\" && chmod \"$2\" \"$t\" && mv -f \"$t\" \"$1\"' sh /usr/local/bin/<name> 755` with the bytes of the build read in step 2 on stdin (`install /dev/stdin` is not used because the Ubuntu 26.04 image ships uutils coreutils, whose `install` fails to read `/dev/stdin`)"
+        - "Then runs `host_exec` `sha256sum /usr/local/bin/<name>` and compares the result with the reference hash from step 2."
+        - "Then writes the two lifecycle units with the same stdin delivery (`root:root`, mode 644; text in `packages/agent-host/internal/steps/lifecycle_units.go`): `/etc/systemd/system/agent-restore.service` (`Type=oneshot`, `RemainAfterExit=yes`, `Requires`, `After` and `PartOf` `docker.service`, runs `agent_lifecycle restore`, `ExecStopPost` removes `/run/agent-sandbox/ready`, `WantedBy=docker.service multi-user.target`) and `/etc/systemd/system/agent-guard.service` (`Type=simple`, `Restart=always`, runs `agent_lifecycle guard`). Runs `systemctl daemon-reload`, enables `docker.service` and both units, and starts them. The restore unit removes every `agent-*` container, rebuilds `agents-net` and its gate and writes the ready marker after each dockerd start; the guard unit (`agent_lifecycle guard`, a long-running process; the two units are both ordered after `docker.service` and not against each other) follows the engine events start, unpause, die and update and the network events connect and disconnect of the `agent-*` containers and reconciles at its start and every 60 s (`AGENT_SANDBOX_GUARD_RECONCILE`). While it holds the per-agent lock it runs the name-keyed disarm on `die` and `check-gate` on the other events, and removes a container whose gate check fails cleanly (exit 2); on an error it disarms first and removes only after a disarm that exited 0, otherwise it leaves the container in place. At reconcile it also evicts untagged elements of the gate set `released` and disarms names whose container is gone. It exits non-zero when the event stream ends so that `Restart=always` starts it again. The behaviour is specified by SFR-AGC-025, SFR-AGC-026, SFR-AGC-027, SFR-AGC-028, SSR-AGC-017 and SSR-AGC-018; it has no further step in a use case (it acts after USC-002 and on containers started outside the tools). Because the units are enabled, dockerd, the restore and the guard come back at every boot of the VM; there is no keep-alive."
+        - "Then seeds the model endpoints file: runs `/usr/local/bin/refresh_endpoints` as root with the bytes of `endpoints.json` (read and validated in step 2; its bytes go over stdin, never a path), which validates the list, resolves all names on the host and installs `/etc/agent-net/endpoints.json` (`root:root`, mode 644). Then runs `host_exec` `stat -c '%U:%G %a' /etc/agent-net/endpoints.json` and expects `root:root 644`. A non-zero exit of `refresh_endpoints` or another result fails the step with exit status 2."
+      interaction_point:
+        ip_ref: "IP-HOST-EXEC"
+        channel: "CHAN-HOST-EXEC"
+        object_flow: "binary bytes of each tool on stdin to the `sh -c` write command; stdout SHA-256 of the installed file, per binary; unit file text on stdin, then `systemctl daemon-reload`, `systemctl enable` and `systemctl start` for `docker.service`, `agent-restore.service` and `agent-guard.service`; `endpoints.json` bytes on stdin to `refresh_endpoints` — Provisioning tool -> VM, hash back to Provisioning tool"
+    - step: 8
+      actor: "Provisioning tool"
+      action:
+        - "Verifies the acceptance criteria of USS-001 on the VM; all failures are collected (SFR-HOST-009):"
+        - "Docker, Python, gnome-keyring, git and tar are available as `agent-operator`; each of the 13 dependency packages is installed (`dpkg -s`); `ca-certificates`, `curl`, `gpg` and `runsc` work (as root)"
+        - "`docker info --format '{{json .Runtimes}}'` has a `runsc` key (as root; registered in `/etc/docker/daemon.json`, dockerd restarted in step 6)"
+        - "`/etc/docker/daemon.json` holds the `runsc` entry with path `/usr/local/bin/runsc` and the eight runtimeArgs in order, is `root:root` and not writable by `agent-operator`"
+        - "The two `br_netfilter` files of step 6 exist with the exact content (`root:root`, mode 644), `/sys/module/br_netfilter` exists and `/proc/sys/net/bridge/bridge-nf-call-iptables` reads `1`"
+        - "`docker run --rm --runtime=runsc hello-world` succeeds (the image is pulled from the Docker registry; run as root)"
+        - "`docker buildx version` succeeds (as root)"
+        - "`systemctl is-system-running` reports exactly `running` (`degraded` is not accepted)"
+        - "`nft --version`, `iptables --version`, `ip -V` and `bridge -V` succeed (as root)"
+        - "`agent-operator` has UID and GID 1001, is in none of the groups `sudo`, `admin`, `wheel`, `adm`, `disk`, `lxd`, `libvirt`, `docker` (`id -nG`) and has no sudoers entry (`sudo -n true` fails; a missing `sudo` binary also passes)"
+        - "`/usr/local/bin` is owned by root and not writable by `agent-operator`"
+        - "`/usr/local/bin/create_agent_container`, `/usr/local/bin/remove_agent_container`, `/usr/local/bin/create_agent_net`, `/usr/local/bin/remove_agent_net`, `/usr/local/bin/agent_lifecycle`, `/usr/local/bin/enter_agent` and `/usr/local/bin/refresh_endpoints` exist, are `root:root` with mode 755, and each SHA-256 matches its reference hash"
+        - "`/etc/systemd/system/agent-restore.service` and `/etc/systemd/system/agent-guard.service` have the expected content and are `root:root` mode 644; `docker.service`, `agent-restore.service` and `agent-guard.service` are enabled; `agent-guard.service` is active and `agent-restore.service` is active (exited)"
+        - "the hostname is `agent-host` and `/etc/cloud/cloud.cfg.d/99-agent-host-hostname.cfg` has the expected content"
+        - "no host mounts: `/proc/mounts` lists no `virtiofs`, `9p`, `sshfs`, `fuse.sshfs` or `fuse.reverse-sshfs` mount"
+        - "`/etc/apt/apt.conf.d/51agent-host-no-docker-upgrade` has the expected content (blacklist of `docker.io`, `docker-buildx`, `containerd`, `runc`, `runsc`) and is `root:root` mode 644"
+        - "`agent-operator` cannot write the home of any login user (UID 1000-65533 except `agent-operator`): not the home itself, `.bashrc`, `.profile`, `.ssh`, `.ssh/authorized_keys`, nor anything `find -writable` finds in it"
+        - "Docker/gVisor configuration exists only on the VM: the tool runs on the VM and addresses no other machine (ensured by construction; the state of the reader's machine is not measured before/after). On the reader's machine the tool changes nothing"
+        - "Removed WSL-only checks: distro listed as version 2, `/mnt/c` absent, no `drvfs` or 9p mount, `WSLInterop` not registered, `powershell.exe` not found, `degraded` accepted for `user@0.service`, `/etc/wsl.conf`, `PATH` without host entries, default user"
+      interaction_point:
+        ip_ref: "IP-HOST-EXEC"
+        channel: "CHAN-HOST-EXEC"
+        object_flow: "checks needing the Docker socket (`docker info`, `docker run`, `docker buildx version`) and the `dpkg -s`, `nft --version` / `iptables --version` / `ip -V` / `bridge -V` and tool checks as root; the other checks as `agent-operator` through `/usr/sbin/runuser -u agent-operator -- <check command>` (`agent-operator` has neither sudo nor `docker` group membership); stdout and exit status of each — Provisioning tool -> VM, results back to Provisioning tool"
+    - step: 9
+      actor: "Provisioning tool"
+      action: "Writes the done marker `/etc/agent-host` (`AGENT_HOST_VERSION=1`, `root:root`, mode 644), then reports success on stdout (hostname `agent-host`, user `agent-operator`, installed dependencies, installed tools) and returns `exit_code: 0`."
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stdout success report, `exit_code: 0` — Provisioning tool -> Developer"
+
+  alternative_flows:
+    - id: "alt-1"
+      at_step: 1
+      condition: "Developer wants to move code or data into the VM (data transfer, placeholder in USS-001)"
+      behavior: "Out of scope of this use case; handled separately over IP-VM-FILE-TRANSFER (`limactl copy` / `multipass transfer`, `scp`, `rsync`) or `git clone` / `git push` inside the VM. There are no host mounts."
+
+  exception_flows:
+    - id: "err-9"
+      at_step: 1
+      condition: "The executable is invoked with any argument (derived, not stated in USS-001)"
+      system_reaction: "Stops before any other step, writes the usage (`usage: create_agent_host; takes no arguments`) to stderr and returns `exit_code: 1`."
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr usage message, `exit_code: 1` — Provisioning tool -> Developer"
+    - id: "err-11"
+      at_step: 1
+      condition: "The foundation preflight fails: the binary is not running on Linux, the effective user is not root, `/etc/agent-foundation` is missing or unreadable, or it does not contain the line `FOUNDATION_VERSION=1` (unknown foundation version) or `UBUNTU=26.04`, a `virtiofs`, `9p`, `sshfs`, `fuse.sshfs` or `fuse.reverse-sshfs` mount is listed in `/proc/mounts`, `/etc/agent-host` exists, `agent-operator` exists, or UID or GID 1001 is taken (a rerun is refused, not repaired) (derived, not stated in USS-001; SFR-HOST-014)"
+      system_reaction: "Aborts before any command is run, writes the reason to stderr with a hint to run `vm/check-foundation.sh` (and `sudo` for the root case) and returns `exit_code: 1`."
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report, `exit_code: 1` — Provisioning tool -> Developer"
+    - id: "err-6"
+      at_step: 2
+      condition: "At least one of `create_agent_container`, `remove_agent_container`, `create_agent_net`, `remove_agent_net`, `agent_lifecycle`, `enter_agent`, `refresh_endpoints` or `endpoints.json` is missing or unreadable, or `endpoints.json` is invalid, in the folder the executable is run from (derived, not stated in USS-001)"
+      system_reaction: "Aborts before changing anything, writes each missing build path or the validation error to stderr and returns `exit_code: 1`."
+      exit_state: "NOT_CREATED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report naming the expected paths, `exit_code: 1` — Provisioning tool -> Developer"
+    - id: "err-4"
+      at_step: "3-6"
+      condition: "A user or group creation, hostname, dependency installation (incl. a gVisor apt key whose fingerprint does not match the pinned one) or `runsc` registration step fails (steps 3, 4, 5, 6)"
+      system_reaction: "Stops, reports the failed step on stderr and returns `exit_code: 2`. No rollback: the partially configured VM is left as is; the developer deletes it (`limactl delete agent-host` or `multipass delete --purge agent-host`) and recreates it from the foundation config."
+      exit_state: "PARTIALLY_CONFIGURED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report naming the failed step, `exit_code: 2` — Provisioning tool -> Developer"
+    - id: "err-7"
+      at_step: 7
+      condition: "Installing one of the seven binaries or one of the two unit files fails, enabling or starting the units fails, `refresh_endpoints` fails, or a binary's SHA-256 on the VM does not match the reference hash"
+      system_reaction: "Stops, writes the binary or unit name and the install error or both hashes to stderr and returns `exit_code: 2`. No rollback: a mismatching binary is not removed; the developer deletes and recreates the VM as for err-4."
+      exit_state: "PARTIALLY_CONFIGURED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report with binary name and install error or expected/actual hash, `exit_code: 2` — Provisioning tool -> Developer"
+    - id: "err-5"
+      at_step: 8
+      condition: "At least one acceptance check fails (e.g. a host mount is listed, the apt blacklist file content or mode is wrong, `agent-operator` can write the home of a login user,`runsc` not in Docker runtimes, gVisor container does not run, systemd not exactly `running`, UID or GID of `agent-operator` not 1001, `agent-operator` has a sudoers entry or is in one of the groups `sudo`, `admin`, `wheel`, `adm`, `disk`, `lxd`, `libvirt`, `docker`, `/usr/local/bin` or `/etc/docker/daemon.json` not root-owned or writable by `agent-operator`, `nft --version`/`iptables --version`/`ip -V`/`bridge -V` fails, a binary's owner/mode/hash wrong, a lifecycle unit file's content/owner/mode wrong, a unit not enabled, `agent-guard.service` not active or `agent-restore.service` not active (exited), hostname not `agent-host` or the cloud-init drop-in wrong)"
+      system_reaction: "Writes each failed check to stderr and returns `exit_code: 2`; success is not reported. No rollback; the developer deletes and recreates the VM as for err-4."
+      exit_state: "UNVERIFIED"
+      interaction_point:
+        ip_ref: "IP-CLI-CREATE-AGENT-HOST"
+        channel: "CHAN-SHELL-CONSOLE"
+        object_flow: "stderr failure report listing failed checks, `exit_code: 2` — Provisioning tool -> Developer"
+    - id: "err-1"
+      status: "withdrawn"
+      withdrawn: "withdrawn 2026-11-22: WSL2 path removed"
+      note: "Was: a distro named `agent-host` is already registered."
+    - id: "err-2"
+      status: "withdrawn"
+      withdrawn: "withdrawn 2026-11-22: WSL2 path removed"
+      note: "Was: rootfs, SHA256SUMS or signature download or verification failure."
+    - id: "err-3"
+      status: "withdrawn"
+      withdrawn: "withdrawn 2026-11-22: WSL2 path removed"
+      note: "Was: `distro_import` fails."
+    - id: "err-8"
+      status: "withdrawn"
+      withdrawn: "withdrawn 2026-11-22: WSL2 path removed"
+      note: "Was: `wsl.exe -l -v` fails, WSL2 unavailable."
+    - id: "err-10"
+      status: "withdrawn"
+      withdrawn: "withdrawn 2026-11-22: WSL2 path removed"
+      note: "Was: WSL older than 2.4.10 or version unreadable."
+
+  postconditions:
+    - "The VM `agent-host` has the hostname `agent-host` (kept by a cloud-init `preserve_hostname` drop-in); the non-root user `agent-operator` exists with UID and GID 1001, no sudoers entry, in none of the groups `sudo`, `admin`, `wheel`, `adm`, `disk`, `lxd`, `libvirt`, `docker`; the foundation login user is unchanged; `/usr/local/bin` and `/etc/docker/daemon.json` are `root:root` and not writable by `agent-operator`; systemd is running"
+    - "Docker engine (`docker.io`, with `docker-buildx`; service enabled and running), gVisor (`runsc`), Python 3, gnome-keyring, git, tar, nftables (`nft`), iptables, iproute2 (`ip`, `bridge`), ca-certificates, curl and gnupg are available on the VM"
+    - "`runsc` is registered as a Docker runtime in `/etc/docker/daemon.json` on the VM (path `/usr/local/bin/runsc`, exactly the eight runtimeArgs `--platform=systrap`, `--network=sandbox`, `--net-raw=false`, `--allow-flag-override=false`, `--overlay2=root:memory`, `--file-access=exclusive`, `--file-access-mounts=shared`, `--directfs=false`) and dockerd was restarted afterwards"
+    - "`/usr/local/bin/create_agent_container`, `/usr/local/bin/remove_agent_container`, `/usr/local/bin/create_agent_net`, `/usr/local/bin/remove_agent_net`, `/usr/local/bin/agent_lifecycle`, `/usr/local/bin/enter_agent` and `/usr/local/bin/refresh_endpoints` are installed as `root:root`, mode 755, each with the same SHA-256 as the build read in step 2 (built in the VM into `dist/`)"
+    - "`agent-restore.service` and `agent-guard.service` are installed (`root:root`, 644), enabled and running; `agents-net` and its gate exist and `/run/agent-sandbox/ready` is written after each dockerd start; the guard removes an agent container that is started, unpaused, restarted or reconnected with its gate not passing `check-gate`, after a successful disarm (a failed disarm leaves it in place), and does not re-arm it"
+    - "Docker/gVisor configuration exists only on the VM; the reader's machine is untouched by this use case. This is a structural guarantee (the tool runs inside the VM and addresses no other machine), not a before/after measurement"
+    - "Isolation scope: the VM is the boundary (own kernel, no host mounts, SSH by key only, hardened by `vm/foundation.sh`). The containers on `agents-net` cannot reach the VM's own sshd (INPUT drop per container, set by `create_agent_net arm` and verified by `check-gate`). Lima on macOS (Apple Virtualization) is not tested"
+    - "The done marker `/etc/agent-host` (`AGENT_HOST_VERSION=1`, `root:root`, 644) exists; a rerun is refused by the step 1 preflight"
+    - "The whole setup was produced by one run of `create_agent_host`"

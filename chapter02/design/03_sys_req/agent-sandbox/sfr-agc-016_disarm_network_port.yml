@@ -1,0 +1,23 @@
+SFR-AGC-016:
+  title: "Disarm the agent network port and stop when that fails"
+  kind: "functional"
+  usecase_step_ref: "USC-006: step 4, err-3, err-4, err-9"
+
+  statement: "The system shall call the Agent network control to disarm the container's network port and stop the removal when the disarm does not succeed."
+
+  condition: "When the container exists."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+    - "IP-CLI-REMOVE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must call the disarm of IP-AGENT-NET for the container; exit status 0 means the rules were removed or there was nothing to disarm. The disarm is keyed by the container name and works for a running, a stopped or a removed container; it removes the container's elements of the set released (tagged with its name as comment, and its MACs), its port table, its tagged rules, its neighbour entries and its FDB entries, and never touches the agents-net gate (SFR-NET-012)."
+    - "Must report an Agent network control that cannot be run at IP-CLI-REMOVE-AGENT-CONTAINER with exit status 1 and remove nothing."
+    - "Must report a non-zero disarm exit with its error output at IP-CLI-REMOVE-AGENT-CONTAINER, with exit state DISARM_FAILED and exit status 2, and remove nothing."
+    - "Must treat a container that vanished between the lookup and the disarm as no failure of its own: the disarm is name-keyed and exits 0 when nothing is left to do, so the removal then continues and finds the container gone; only a non-zero disarm exit is DISARM_FAILED, exit status 2."
+    - "Must stop on a failed disarm (strict path, also used by agent_lifecycle guard, which therefore leaves the container in place, fail-closed; the guard removes a container only after a disarm that exited 0, SFR-AGC-026). Only agent_lifecycle restore runs the same removal in a tolerant mode: it logs a failed disarm and goes on removing the container, because it rebuilds the whole gate right after (remove_agent_net, create_agent_net)."
+
+  post_conditions:
+    - "After a failed disarm the container is in place behind the gate and a re-run retries the disarm."
+    - "After a container vanished between lookup and disarm, the removal ends with the container gone (a re-run reports NOT_PRESENT with exit status 0)."

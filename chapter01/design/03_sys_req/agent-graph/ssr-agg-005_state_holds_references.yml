@@ -1,0 +1,15 @@
+SSR-AGG-005:
+  title: "Hold references, not payloads, in the run state"
+  kind: "structural"
+  usecase_step_ref: "USC-008: step 6, step 8"
+
+  statement: "The system shall hold in the run state only references, short summaries and structured results, with a typed schema."
+
+  condition: "For every run, from the compiled graph to the end of the run."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show that the state schema is typed and that large products are held as paths in .agent/<runID>/work/<nodeID>/ at IP-AGENT-RUN-WORKSPACE."
+    - "Must show that a node sees its read products (context.md, in reads order), the handoff notes of upstream nodes and the run facts (L3), and nothing else crosses between nodes."

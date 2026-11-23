@@ -1,0 +1,19 @@
+SFR-AGT-014:
+  title: "Detect a protected-file change in a cognitive step"
+  kind: "functional"
+  usecase_step_ref: "USC-009: alternative alt-3 (exception exc-13)"
+
+  statement: "The system shall fail a cognitive step whose turn changed a protected file."
+
+  condition: "When a cognitive step's turn ends and a hash of `.process/`, `.input/`, `.tools/` or the run state differs from its value before the turn."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must hash the protected files at IP-AGENT-RUN-WORKSPACE before every turn and compare them after it."   # open: not implemented
+    - "Must fail the step and stop the run as a node failure (USC-008); the further handling is `TBD`."
+
+  post_conditions:
+    - "No step that changed a protected file was accepted."
+    - "A step whose protected files are unchanged proceeds normally."

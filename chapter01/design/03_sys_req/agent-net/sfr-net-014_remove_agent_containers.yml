@@ -1,0 +1,24 @@
+SFR-NET-014:
+  title: "Remove every agent container on the network after disarming it"
+  kind: "functional"
+  usecase_step_ref: "USC-007: step 5, alt-2, err-4"
+
+  statement: "The system shall disarm and then remove each agent container attached to the agent network, keeping its workspace."
+
+  condition: "When the attached containers are all agent containers."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine"
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must disarm each container's port (SFR-NET-012, name-keyed as SFR-NET-027) before removing the container with `docker rm -f`."
+    - "Must unpause a paused container before `docker rm -f` (a paused sandbox of the isolated runtime cannot be killed); a container that is not found at the unpause counts as already gone, any other failure of the inspect or the unpause stops the run."
+    - "Must find the containers by their attachment to agents-net, so that a container that was created and never armed (attached at creation, not started or paused) is also found and removed; this is intended behaviour. Elements of `released` and tables left by a container that no longer exists are not found this way; they are removed by the leftover steps (SFR-NET-015, SFR-NET-026), the elements together with the deletion of the table `agents_gate`."
+    - "Must not touch the workspace folder of any agent."
+    - "Must report on stdout, per container as soon as it is removed, that it was removed and that its workspace is kept (SFR-NET-018)."
+    - "Must stop at the first failure with `exit_code: 2`, state `REMOVE_INCOMPLETE`, naming the container and those still to remove, and leave the port tables and rules of the remaining containers in place."
+    - "Must treat a container that is gone by then as already removed."
+
+  post_conditions:
+    - "No agent container is attached to the network, or the failure report names those that are."

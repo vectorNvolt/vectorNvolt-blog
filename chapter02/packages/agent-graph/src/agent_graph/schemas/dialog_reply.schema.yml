@@ -1,0 +1,22 @@
+# Reply of a dialog Claude instance (S2 clarify, S4 note sources, S7 resolution).
+type: object
+required: [say, action]
+additionalProperties: false
+properties:
+  say: {type: string}
+  action: {enum: [ask, agree, propose, done]}
+  process_id: {type: [string, "null"]}
+  proposals:
+    type: array
+    items:
+      type: object
+      required: [kind, reason]
+      additionalProperties: false
+      properties:
+        kind: {enum: [edit_file, override, choose_process]}
+        path: {type: [string, "null"]}
+        content: {type: [string, "null"]}
+        key: {type: [string, "null"]}
+        node: {type: [string, "null"]}
+        value: {}
+        reason: {type: string}

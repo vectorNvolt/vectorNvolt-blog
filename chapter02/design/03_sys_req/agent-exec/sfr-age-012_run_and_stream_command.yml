@@ -1,0 +1,23 @@
+SFR-AGE-012:
+  title: "Run the command and stream its output"
+  kind: "functional"
+  usecase_step_ref: "USC-005: steps 8, 9"
+
+  statement: "The system shall run the command in the verified container and stream its output to the caller and to the logs."
+
+  condition: "When the container has been verified."
+
+  interface_points:
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must write `meta.json` once before the start and never change it afterwards; it holds the request (profile, kind, argv, labels), the inputs (name, source, path, sha256), the inspected settings (mounts, capabilities, limits) and the `image_id`."
+    - "Must subscribe to the engine events for the container before the start, so that an out-of-memory event is seen although the container is removed after exit."
+    - "Must stream standard output and error at IP-EXEC-TOOL-CLI and into `stdout.log` and `stderr.log` in the execution folder; the first error-output line is `run_ephemeral_container: exec_dir=<path>`, but only once an execution folder exists (usage, engine, folder and busy errors have no such line)."
+    - "Must run the command with `/work` as working directory, standard input closed and no network."
+
+  post_conditions:
+    - "The output of the command is in the caller's streams and in the logs."
+    - "The command's exit code is known from the engine."

@@ -1,0 +1,20 @@
+SFR-AGE-017:
+  title: "Report a failed fetch phase with the operator action"
+  kind: "functional"
+  usecase_step_ref: "USC-005: step 8 (exception exc-11)"
+
+  statement: "The system shall report a failed fetch phase with the action the operator must take."
+
+  condition: "When the fetch phase of an install ends non-zero, for example for a package without a prebuilt wheel."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+
+  constraints:
+    - "Must remove the install container without starting it and exit with the manager's exit code, cause `fetch`."
+    - "Must write at IP-EXEC-TOOL-CLI on standard error exactly: `run_ephemeral_container: fetch failed: packages without a prebuilt wheel must be built or downloaded as a wheel on agent-host and copied by the operator to Workspace-Agents/<agentID>/.packages/`."
+    - "Must record `phase: fetch` in `result.json` and keep the output."
+
+  post_conditions:
+    - "The target environment folder is unchanged."
+    - "The caller can pass cause and message to the operator."

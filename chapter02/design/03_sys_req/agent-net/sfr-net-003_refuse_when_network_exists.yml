@@ -1,0 +1,23 @@
+SFR-NET-003:
+  title: "Refuse to create the agent network when it already exists"
+  kind: "functional"
+  usecase_step_ref: "USC-004: step 3, err-4"
+
+  statement: "The system shall refuse to create the agent network when a network of that name already exists and leave the existing network unmodified."
+
+  condition: "When the checks of privilege and container engine have passed."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-NET Developer command-line entrypoint"
+
+  constraints:
+    - "Must check at IP-DOCKER-ENGINE that no network named agents-net exists."
+    - "Must write a failure report naming the existing network to the error output at IP-CLI-CREATE-AGENT-NET when it exists."
+    - "Must return exit status 1 at IP-CLI-CREATE-AGENT-NET when it exists."
+    - "Must show the existing network unmodified at IP-DOCKER-ENGINE when it exists."
+    - "Must report the exit state ALREADY_EXISTS at IP-CLI-CREATE-AGENT-NET when it exists."
+
+  post_conditions:
+    - "The existing network is untouched and nothing has been created when a network of that name existed."
+    - "When no such network existed, the run continues."

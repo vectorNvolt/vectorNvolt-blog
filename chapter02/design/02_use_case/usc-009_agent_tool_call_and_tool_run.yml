@@ -1,0 +1,374 @@
+# ==============================================================================
+# USC-009 — derived from USS-009 (design/01_user_story/uss-009_agent_base_toolset.md)
+# Template: tmpl_usecase_v2.yml (structure as USC-005 and USC-008)
+# Interaction points and channels: IP-CLAUDE-CLI (CHAN-CLAUDE-STREAM-JSON) and
+# IP-AGENT-RUN-WORKSPACE (CHAN-FS-RUN-WORKSPACE) are defined in the USS-008 section,
+# IP-EXEC-TOOL-CLI (CHAN-SHELL-EXEC) and IP-INCONTAINER-ENGINE (CHAN-ENGINE-API) in the
+# USS-005 section of design/00_system_boundary/interaction_points.yml.
+# USS-009 section of interaction_points.yml (`# proposed`, USS-009 names no IPs):
+#   IP-CLAUDE-POLICY-BUNDLE (CHAN-FS-POLICY-BUNDLE)  read-only bind `/etc/claude-code/`
+#   IP-TOOL-GUARD-HOOK      (CHAN-HOOK-STDIO)        Claude Code -> `agent-tool-guard`
+# `# TBD`      = undefined in USS-009.
+# `# proposed` = defined here or in interaction_points.yml, not in USS-009.
+# `# open`     = open item of USS-009 that this use case cannot resolve.
+# Requirements: SFR-AGT-001..017 (without 013, 016) and SSR-AGT-001..007 in
+# design/03_sys_req/agent-toolset/; SFR-AGG-042, SFR-AGG-043 in design/03_sys_req/agent-graph/
+# (each names its USC-009 step in `usecase_step_ref`).
+# Scope: the main flow is one guarded tool call in the interactive session that runs
+# a tool run (kind `tool`, the ngspice reference operation, USS-009 step 5). Built-in
+# tools, other allowlisted commands, agent-graph cognitive steps, `list --json` and
+# isolated procedure steps with a tool profile are alternative flows. The exec part
+# (exec dir, fixed settings, engine authorization plugin) is USC-005 and is cited,
+# not repeated.
+# Step mapping: steps 1, 2, 3 and 7 are the steps 1, 2, 3 and 5 of "Interaction" in
+# USS-009; steps 4-6 expand its step 4 for the kind `tool` (USS-009 "Tool runs").
+# Status of USS-009: partly implemented. `run_ephemeral_container` `run`, `build`,
+# `install`, `list`, `sweep` exist (`packages/agent-exec`, USS-005); the kind `tool`,
+# `input_policy`, `--param`, the policy bundle, `agent-tool-guard`, the fourth mount,
+# `runtime.profiles`, `EXEC_PROFILES`, `AGENT_SESSION` and the L6 integrity check do not
+# (USS-009 "Implementation status").
+# ==============================================================================
+
+USC-009:
+  title: "Make a guarded tool call and run an engineering tool in an ephemeral container"
+  summary: "The agent (Claude Code as uid 1001 in the agent container, interactive session or agent-graph cognitive step) works with a fixed base toolset: the built-ins `Read`, `Glob`, `Grep`, `Edit`, `Write`, `TodoWrite` and a guarded `Bash`. Every tool call is decided first by the managed settings and then by the managed PreToolUse hook `agent-tool-guard`, both read only from the read-only bind `/etc/claude-code/`, never from the workspace. Bash runs only a single simple command from a command allowlist with argument rules and path zones. Executions, builds, installs and engineering tools run only in ephemeral containers through `run_ephemeral_container` (USC-005); for the kind `tool` the agent supplies a profile name, declared inputs and typed params, and the operator-supplied profile fixes the whole command line (e.g. ngspice `-b -n`), the input filter and the mounts. The agent reads products from `/workspace/.output/exec/<execId>/out/` with `Read`."
+
+  actors:
+    primary: "Agent (Claude Code session as user `agent`, uid 1001, in `agent-<agentID>`: the interactive session started by `enter_agent`, or one cognitive step of agent-graph, USS-008)"
+    supporting:
+      - "Claude Code (`/usr/local/bin/claude`, pinned, root-owned, auto-updater disabled; reads the managed settings, enforces tool permissions, runs hooks)"
+      - "Policy bundle (`/etc/claude-code/`: `managed-settings.json`, `hooks/agent-tool-guard`, `tool-guard/rules.yml`; read-only bind of the per-agent host folder `/var/lib/agent-sandbox/<agentID>/claude-code/`, written by `create_agent_container`, USC-002)"
+      - "`agent-tool-guard` (static Go binary, managed PreToolUse hook; Bash grammar, command allowlist, argument rules, path zones with real-path resolution; fails closed with exit 2)"
+      - "Execution tool `run_ephemeral_container` (USC-005; subcommand `tool` for the kind `tool`)"
+      - "Execution profile of kind `tool` (`/workspace/.tools/<tool>/profile.yml`, operator-supplied: `entry: fixed`, `argv`, `inputs`, `input_policy`, `params`, `limits`)"
+      - "In-container Docker daemon with the engine authorization plugin `ephemeral-authz` (USC-005, layer L4)"
+      - "agent-graph runtime (USS-008; sets tools, environment `AGENT_SESSION`/`EXEC_PROFILES` and write grant of a cognitive step; runs the integrity check L6)"
+      - "Operator (supplies the policy source on agent-host and the tool folders into `.tools/`)"
+      - "Developer (owns the process package; cannot change the platform policy)"
+
+  interaction_points:
+    - ip_ref: "IP-CLAUDE-CLI"   # USS-008
+      direction: "inbound"
+      type: "subprocess_cli"
+      boundary: "Model -> Claude Code in `agent-<agentID>` (agent-graph: headless `claude -p` per cognitive step; interactive: `claude` started by `enter_agent`)"
+      transport: "stream-json events (agent-graph); interactive terminal session (`enter_agent`)"
+      role: "carries the model's tool requests (`tool_use`) and the tool results back; for agent-graph also the launch flags `--tools`, `--allowedTools`, `--strict-mcp-config` and the environment `AGENT_SESSION`, `EXEC_PROFILES`"
+    - ip_ref: "IP-CLAUDE-POLICY-BUNDLE"   # proposed
+      direction: "inbound"
+      type: "filesystem"
+      boundary: "agent-host `/var/lib/agent-sandbox/<agentID>/claude-code/` (root-owned, written at creation from `/usr/local/share/agent-sandbox/claude-code/`) -> `/etc/claude-code/` in `agent-<agentID>` (read-only bind, fourth mount)"
+      transport: "POSIX file reads by Claude Code (managed settings) and by `agent-tool-guard` (rules); not writable by uid 1001, nor by in-sandbox uid 0 (to verify under gVisor)"   # open: ro bind against in-sandbox uid 0
+      role: "the only source of hooks, permission rules, tool limitation and the command allowlist; never mounted into an ephemeral container"
+    - ip_ref: "IP-TOOL-GUARD-HOOK"   # proposed
+      direction: "internal"
+      type: "subprocess_cli"
+      boundary: "Claude Code (uid 1001) -> `/etc/claude-code/hooks/agent-tool-guard` (uid 1001, absolute path, no PATH lookup)"
+      transport: "Claude Code PreToolUse hook protocol: tool name and tool input as JSON on stdin, exit code 0 (allow) or 2 (deny, reason on stderr), timeout 10 s"   # open: hook failure semantics and environment passing with the pinned version
+      role: "decides every `Bash`, `Read`, `Edit`, `Write`, `Glob`, `Grep` call before it runs"
+    - ip_ref: "IP-EXEC-TOOL-CLI"   # USS-005, proposed there
+      direction: "outbound"
+      type: "subprocess_cli"
+      boundary: "Claude Code Bash (uid 1001) -> `run_ephemeral_container` in `agent-<agentID>`"
+      transport: "POSIX process execution; arguments in, stdout and stderr streamed back, exit code"
+      role: "the only way the agent starts a container; all subcommands `run`, `build`, `install`, `tool`, `list`, `sweep` are allowed to the agent"
+    - ip_ref: "IP-INCONTAINER-ENGINE"   # USS-005, proposed there
+      direction: "outbound"
+      type: "http_unix_socket"
+      boundary: "`run_ephemeral_container` (uid 1001) -> `/var/run/docker.sock` -> `dockerd`, every request through `ephemeral-authz`"
+      transport: "Docker Engine API over the Unix socket"
+      role: "container lifecycle of the tool run, as USC-005 steps 3-10; no plugin change is needed for the kind `tool`"
+    - ip_ref: "IP-AGENT-RUN-WORKSPACE"   # USS-008
+      direction: "outbound"
+      type: "filesystem"
+      boundary: "Agent tools and `run_ephemeral_container` (uid 1001) -> `/workspace` in the container"
+      transport: "POSIX filesystem calls; the guard resolves real paths and rejects symlinks leaving a zone"
+      role: "built-ins read and write within the zones of USS-009 \"Write and read zones\"; the exec tool reads `.tools/`, the `--in` paths and writes `.output/exec/<execId>/`"
+
+  preconditions:
+    - "USC-002 is complete: `agent-<agentID>` runs with the policy bundle mounted read-only at `/etc/claude-code/` (fourth mount); the bundle files are `root:root`, not writable by uid 1001, the hook binary is present and static"   # open: fourth mount and its final verification not implemented (`s08_verify` expects three mounts)
+    - "USC-003 delivered the agent image with Claude Code pinned and root-owned at `/usr/local/bin/claude` and `/usr/local/bin/run_ephemeral_container`; no toolchain (compiler, ngspice) is in the agent image"
+    - "Claude Code is started by absolute path `/usr/local/bin/claude` (by `enter_agent` or agent-graph), loads `/etc/claude-code/managed-settings.json` (`allowManagedHooksOnly`, `disableBypassPermissionsMode`, deny rules, PreToolUse hook, no MCP server, `DISABLE_AUTOUPDATER`)"   # open: code still starts bare `claude`; managed-settings key names to verify
+    - "The interactive session sets `AGENT_SESSION=interactive`"   # open: how `enter_agent` sets it
+    - "The in-container engine and `ephemeral-authz` run; the agent user is in the group `docker` (SSR-AGC-011) — USC-005 preconditions"
+    - "For a tool run: `/workspace/.tools/<tool>/` holds a valid `profile.yml` of kind `tool` and `image.tar` (supplied by the operator from the tool pool)"
+    - "The reference operation: `src/amp.cir`, `src/models/opamp.lib` and the testbench `src/tb_amp.cir` (written by the agent with `Write`, alt-1) exist"
+
+  main_flow:
+    - step: 1
+      actor: "Agent"
+      action:
+        - "The model requests a Bash tool call `run_ephemeral_container tool ngspice --exec-id e7 --in netlist=/workspace/src/tb_amp.cir --in include=/workspace/src/models/opamp.lib`"
+        - "Claude Code resolves the tool (`Bash`) from the request"
+        - "The agent supplies only the profile name, inputs by declared name and typed params (`--param <k>=<v>`, none here); it cannot set argv, image, mounts or flags"
+      interaction_point:
+        ip_ref: "IP-CLAUDE-CLI"
+        channel: "CHAN-CLAUDE-STREAM-JSON"
+        object_flow: "`tool_use` (`Bash`, command string) — Model -> Claude Code"
+    - step: 2
+      actor: "Claude Code (managed settings, L1/L2)"
+      action:
+        - "Checks the call against the managed settings: `Bash` is not denied (it is guarded by the hook); excluded tools and protected paths are denied there (exc-1)"
+        - "Managed rules have highest precedence: CLI flags, user settings and a workspace `.claude/settings.json` cannot widen them; CLI allow rules (agent-graph) can only narrow"
+      interaction_point:
+        ip_ref: "IP-CLAUDE-POLICY-BUNDLE"
+        channel: "CHAN-FS-POLICY-BUNDLE"   # proposed
+        object_flow: "`/etc/claude-code/managed-settings.json` (loaded at session start) — policy bundle -> Claude Code; decision allow or deny"
+    - step: 3
+      actor: "`agent-tool-guard` (L3)"
+      action:
+        - "Claude Code runs the managed PreToolUse hook with the tool input on stdin; the guard reads `/etc/claude-code/tool-guard/rules.yml` and the environment `AGENT_SESSION` (and `EXEC_PROFILES` in a cognitive step)"
+        - "Grammar: a single simple command; no `; & | < > $ ` ( ) { }`, backslash, newline, `&&`, `||` anywhere (also quoted), no env assignment prefix, no `cd`; single and double quotes are literal; no `* ? [ ] ~ ! #` outside quotes; no `* ? [ ]` in a path argument; an unterminated quote or anything it cannot parse is denied. The guard checks the argument vector after quote removal, which equals what the shell builds"   # open: Bash tool passes the command unchanged
+        - "`argv[0]` `run_ephemeral_container` is on the allowlist and is resolved to its absolute path in a root-owned directory"
+        - "Argument rules: subcommand `tool` is allowed (every subcommand is: `run`, `build`, `install`, `tool`, `list`, `sweep`); in `interactive` mode any profile in `.tools/` is accepted; each `--in` path is resolved to its real path and must lie in a readable zone"
+        - "Exit 0: allow. Any rejection or internal error: exit 2 with the reason on stderr (exc-2 to exc-6)"
+      interaction_point:
+        ip_ref: "IP-TOOL-GUARD-HOOK"
+        channel: "CHAN-HOOK-STDIO"   # proposed
+        object_flow: "PreToolUse JSON (tool name, command) on stdin; exit code 0 or 2, reason on stderr — Claude Code <-> `agent-tool-guard`; rules read from IP-CLAUDE-POLICY-BUNDLE"
+    - step: 4
+      actor: "Execution tool (validate, kind `tool`)"
+      action:
+        - "Claude Code runs the command as uid 1001; `run_ephemeral_container` loads the profiles (USC-005 step 2)"
+        - "Checks that the profile `kind` is `tool`; validates each `--in` against the profile `inputs` (path under `/workspace`, `path_under`, `glob`, `multiple`, `optional`; here `netlist` `*.cir` and `include` `*.lib`, `multiple: true`) and each `--param` against the typed `params`"
+      interaction_point:
+        ip_ref: "IP-EXEC-TOOL-CLI"
+        channel: "CHAN-SHELL-EXEC"
+        object_flow: "command invocation `run_ephemeral_container tool ngspice ...` — Claude Code Bash -> Execution tool; `profile.yml` and `--in` paths read (IP-AGENT-RUN-WORKSPACE)"
+    - step: 5
+      actor: "Execution tool (input policy)"
+      action:
+        - "Runs the profile's `input_policy` (`spice-safe`) on the `--in` source files after validation and before the exec dir is created (USS-005 Interaction step 2 -> 3)"
+        - "`spice-safe` rejects `.control` blocks with `shell` or `source` and every `.include`/`.lib` that does not resolve to a declared `include` input; here `.include models/opamp.lib` resolves to the declared include and passes"   # open: how a relative `.include` resolves (ngspice cwd is `/work`)
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channel: "CHAN-FS-RUN-WORKSPACE"
+        object_flow: "`src/tb_amp.cir`, `src/models/opamp.lib` read — /workspace -> Execution tool; pass or reject (exc-9)"
+    - step: 6
+      actor: "Execution tool, engine authorization plugin and ephemeral container"
+      action:
+        - "Runs USC-005 steps 3-10 with the tool-kind specifics: both inputs are under `src/`, so they are used in place (no copy); the container command is the profile's fixed argv with placeholders expanded and nothing appended: `ngspice -b -n -r {out}/sim.raw -o {out}/sim.log {in.netlist}`"
+        - "Mount model of the kind `tool` (compiled into the exec tool): `/workspace/src` ro, `/workspace/build` ro only if declared, own `in/` ro, own `out/` rw, `/work` tmpfs noexec, `/tmp` and `/home/run` tmpfs (`/tmp` noexec unless `tmp_exec: true`); env dirs not mounted; network `none` (fixed per kind)"
+        - "Never mounted: `.input/`, `.process/`, `.tools/`, `.agent/`, other exec dirs, `.git`, `/etc/claude-code`, credentials, the engine socket; `ephemeral-authz` denies any bind source outside its fixed list"
+        - "Writes `result.json` (`exit` 0, cause `ok`) and exits with the command's exit code"
+      interaction_point:
+        ip_ref: "IP-INCONTAINER-ENGINE"
+        channel: "CHAN-ENGINE-API"
+        object_flow: "`POST /containers/create`, inspect, `start`, `attach`, `wait`, `DELETE` — Execution tool <-> `dockerd` (authorized by `ephemeral-authz`); `meta.json`, `stdout.log`, `stderr.log`, `result.json`, `out/sim.raw`, `out/sim.log` written to `.output/exec/e7/`"
+    - step: 7
+      actor: "Claude Code and Agent"
+      action:
+        - "Claude Code returns the tool result to the model: exit code, streamed output, first stderr line `run_ephemeral_container: exec_dir=/workspace/.output/exec/e7`"
+        - "The agent reads `result.json` and `out/sim.log` with `Read` (each call again passes steps 2 and 3; `.output/` is a read and write zone of the agent except run folders and `meta.json`, so `meta.json` stays as the tool wrote it, `result.json` only while the agent has not changed it)"
+      interaction_point:
+        ip_ref: "IP-CLAUDE-CLI"
+        channel: "CHAN-CLAUDE-STREAM-JSON"
+        object_flow: "`tool_result` (exit code, output) — Claude Code -> Model; `result.json`, `out/` read via IP-AGENT-RUN-WORKSPACE"
+
+  alternative_flows:
+    - id: "alt-1"
+      at_step: 1
+      condition: "The model requests a built-in tool: `Read`, `Glob`, `Grep` (research), `Edit`, `Write` (edit), `TodoWrite` (planning)"
+      behavior: "Steps 2 and 3 apply with the path input of the tool: the guard resolves the real path and checks it against the zones (write: `src/**`, `.output/**` except run folders `.output/<run>/` (a direct child other than `exec/` with a matching `.agent/<run>/`; agent-graph creates both exclusively and never reuses one, USC-008 step 3) and `.output/exec/<execId>/meta.json`, and, in a cognitive step, the step's `.agent/<run>/work/<node>/`; read: as USS-009 \"Write and read zones\"). The tool then runs directly in Claude Code, with no container and no shell (`Grep` uses the bundled ripgrep). Step 4-6 do not apply; step 7 returns the result."   # open: symlink handling of the built-in tools
+    - id: "alt-2"
+      at_step: 1
+      condition: "The model requests Bash with another allowlisted command (`ls`, `head`, `tail`, `wc`, `diff`, `rg`, `find`, `mkdir`, `mv`, `cp`, `touch`, `rm`)"
+      behavior: "Step 3 applies the argument rules of the command (`rg` without `--pre`/`--pre-glob`; `find` without `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete`, `-fprint*`, `-fls`; `mkdir`/`mv`/`cp`/`touch` with every path in a write zone; `rm` only in write zones, recursive only under `src/`; research commands with paths in a readable zone). The command runs as uid 1001 in the agent container by its absolute path; steps 4-6 do not apply."   # open: final command allowlist and argument rules
+    - id: "alt-3"
+      at_step: 1
+      condition: "The agent is an agent-graph cognitive step (USC-008 step 10)"
+      behavior: "agent-graph starts `/usr/local/bin/claude -p` with `--tools <runtime.tools>` (default `Read, Write`; Bash only if the process lists it), `--allowedTools` per step, `--strict-mcp-config`, cwd `.agent/<run>/active/` and, through `TurnRequest.env_extra`, `AGENT_SESSION=cognitive` and `EXEC_PROFILES=<runtime.profiles>`. Managed settings still apply (step 2); the guard accepts only profiles in `EXEC_PROFILES` (step 3). Before the turn agent-graph hashes the protected files (`.process/`, `.input/`, `.tools/`, run state) and checks them after the turn (L6, exc-13). Products from `.output/exec/<execId>/out/` are copied into the step work dir if needed."   # open: whether `--allowedTools` narrows; Bash default; environment passing to hooks; L6 not implemented; copy of exec products
+    - id: "alt-4"
+      at_step: 1
+      condition: "The model requests `run_ephemeral_container list --json` (through guarded Bash)"
+      behavior: "Steps 2 and 3 as in the main flow. The tool reports per profile, besides the common USC-005 alt-3 fields, for kind `tool` the input names with `glob`, `multiple` and `optional`, and the param schema, so the agent can form a correct call. No container and no exec dir are created."   # open: `list --json` lacks inputs and params in code
+    - id: "alt-5"
+      at_step: 4
+      condition: "The guarded command is `run_ephemeral_container run|build|install|sweep ...` (e.g. reference step 6: `run python --exec-id e8 --in data=/workspace/.output/exec/e7/out/sim.raw -- python /workspace/src/analyse.py /workspace/.output/exec/e8/in/data`)"
+      behavior: "After steps 2 and 3 the flow continues as USC-005 main flow (`run`), alt-1 (`build`), alt-2 (`install`) or alt-4 (`sweep`; it removes every container with the label, also executions the agent does not own, e.g. an isolated step agent-graph runs in parallel — accepted, no extra power). `sim.raw` is outside `src/`, so it is copied into `in/data`; the script's output is in `stdout.log`, read with `Read`."   # open: whether the guard restricts free `run -- <argv>` in cognitive steps; whether the script needs `.venv`
+    - id: "alt-6"
+      at_step: 1
+      condition: "An isolated agent-graph procedure step names a tool profile (`isolate: true`, `profile: ngspice`)"
+      behavior: "No Claude Code session and no hook are involved: agent-graph (`ContainerExec.run_isolated`) calls `run_ephemeral_container tool <profile> ...` directly (IP-EXECUTION-CONTAINER), and steps 4-6 apply. A non-isolated procedure step cannot run a process tool."   # open: `validate.py` requires kind `code` for isolated steps; `ContainerExec` always calls `run`
+    - id: "alt-7"
+      at_step: 2
+      condition: "A workspace `.claude/` (project `CLAUDE.md`, settings, skills, agents; or the runtime-written `.agent/<run>/active/.claude/`) declares hooks or permissions"
+      behavior: "Its hooks do not run (`allowManagedHooksOnly`), its permissions cannot widen the managed policy (managed deny wins), and writes to it are denied (managed deny and guard zone). The decision of steps 2 and 3 is unchanged."
+    - id: "alt-8"
+      at_step: 4
+      condition: "Tool run with an input outside `src/` (e.g. `--in netlist=/workspace/.input/amp.cir`) or a repeated `multiple` input"
+      behavior: "The input is copied into the exec dir as in USC-005 step 4 (`in/<name>`, or `in/<name>/<basename>` for `multiple`; total cap 1 GiB, provisional); `{in.<name>}` expands to the staged path(s); `in/` is mounted ro."
+
+  # Exit codes and causes: a hook or settings denial is a tool error to the model, the
+  # session continues, nothing runs. Exec errors use the USS-005 exit codes and causes;
+  # the kind `tool` adds cause `policy` (exit 125, USC-005 exc-14).
+  exception_flows:
+    - id: "exc-1"
+      at_step: 2
+      condition: "The tool or path is denied by the managed settings: `WebFetch`, `WebSearch`, `Task` and subagents, `NotebookEdit`, any `mcp__*` tool; `Edit`/`Write` to `.process/`, `.input/`, `.tools/`, `.output/exec/*/meta.json`, `build/`, any workspace `.claude/`, `/etc/claude-code/`; `Read` of `/home/agent/.claude/.credentials.json` — also when a CLI flag or a workspace setting tries to enable it"
+      system_reaction: "Tool error to the model; nothing runs; the session continues."
+      exit_code: "n/a (tool error)"
+      cause: "n/a"
+      interaction_point:
+        ip_ref: "IP-CLAUDE-CLI"
+        channel: "CHAN-CLAUDE-STREAM-JSON"
+        object_flow: "permission denial as `tool_result` error — Claude Code -> Model"
+    - id: "exc-2"
+      at_step: 3
+      condition: "The Bash command breaks the grammar: a metacharacter, operator or backslash, also quoted (e.g. `cat x | sh`, `rg 'a|b' src`), newline, an env assignment prefix, `cd`, an unquoted `* ? [ ] ~ ! #`, a glob character in a path argument (e.g. `rm 'src/*.o'`), an unterminated quote, or input the parser does not understand"
+      system_reaction: "Hook exit 2; tool error with the reason; nothing runs."
+      exit_code: "2 (hook)"
+      cause: "n/a"
+      interaction_point:
+        ip_ref: "IP-TOOL-GUARD-HOOK"
+        channel: "CHAN-HOOK-STDIO"
+        object_flow: "exit 2, reason on stderr — `agent-tool-guard` -> Claude Code -> Model"
+    - id: "exc-3"
+      at_step: 3
+      condition: "`argv[0]` is not on the allowlist (e.g. `ngspice -b src/tb_amp.cir`, `docker run --privileged -v /:/host ...`, `sh`, `bash`, `python`, `sed`, `awk`, `xargs`, `env`, `curl`)"
+      system_reaction: "Hook exit 2; tool error with the reason; nothing runs. Interpreters in the agent image cannot be started through Bash."
+      exit_code: "2 (hook)"
+      cause: "n/a"
+      interaction_point:
+        ip_ref: "IP-TOOL-GUARD-HOOK"
+        channel: "CHAN-HOOK-STDIO"
+        object_flow: "exit 2, reason on stderr — `agent-tool-guard` -> Claude Code -> Model"
+    - id: "exc-4"
+      at_step: 3
+      condition: "An allowlisted command has a forbidden argument (`rg --pre`, `find -exec`) or a path argument outside its zone, or a symlink that leaves the zone (e.g. `rm -r .process`, a symlink in `src/` pointing to `.process/`, a write into a run folder `.output/<run>/` or its creation, renaming or removal, `mv .output/exec/e7 x`, `cp x .output/exec/e7/meta.json`)"
+      system_reaction: "Hook exit 2; tool error with the reason; nothing runs or changes."
+      exit_code: "2 (hook)"
+      cause: "n/a"
+      interaction_point:
+        ip_ref: "IP-TOOL-GUARD-HOOK"
+        channel: "CHAN-HOOK-STDIO"
+        object_flow: "exit 2, reason on stderr — `agent-tool-guard` -> Claude Code -> Model"
+    - id: "exc-5"
+      at_step: 3
+      condition: "Session mode does not allow the profile: `AGENT_SESSION` absent or invalid; or `cognitive` with `EXEC_PROFILES` unset; or `cognitive` with a profile not in `EXEC_PROFILES`"
+      system_reaction: "Hook exit 2 for every affected `run_ephemeral_container` call (fail closed, never allow-all); nothing runs."   # open: Claude Code passing the environment to hooks
+      exit_code: "2 (hook)"
+      cause: "n/a"
+      interaction_point:
+        ip_ref: "IP-TOOL-GUARD-HOOK"
+        channel: "CHAN-HOOK-STDIO"
+        object_flow: "exit 2, reason on stderr — `agent-tool-guard` -> Claude Code -> Model"
+    - id: "exc-6"
+      at_step: 3
+      condition: "`agent-tool-guard` hits an internal error: bad hook input, unreadable or invalid `rules.yml`"
+      system_reaction: "The guard catches it and exits 2 (deny); nothing runs."
+      exit_code: "2 (hook)"
+      cause: "n/a"
+      interaction_point:
+        ip_ref: "IP-TOOL-GUARD-HOOK"
+        channel: "CHAN-HOOK-STDIO"
+        object_flow: "exit 2, reason on stderr — `agent-tool-guard` -> Claude Code"
+    - id: "exc-7"
+      at_step: 3
+      condition: "`agent-tool-guard` crashes, is killed, exits non-zero other than 2, or times out"
+      system_reaction: "Claude Code may let the tool run (to verify with the pinned version). The managed deny rules (L2) and the engine authorization plugin (L4) remain; see exc-12 for the full bypass case."   # open: hook failure semantics of the pinned Claude Code
+      exit_code: "n/a"
+      cause: "n/a"
+      interaction_point:
+        ip_ref: "IP-TOOL-GUARD-HOOK"
+        channel: "CHAN-HOOK-STDIO"
+        object_flow: "no decision (crash or timeout) — `agent-tool-guard` -> Claude Code"
+    - id: "exc-8"
+      at_step: 4
+      condition: "The profile's kind is not `tool`, an `--in` does not match the profile `inputs` (name, `path_under`, `glob`, missing non-optional input, repeated non-`multiple` input), or a `--param` is unknown or of the wrong type"
+      system_reaction: "Exit 125, cause `usage`; nothing is created (as USC-005 exc-1)."
+      exit_code: 125
+      cause: "usage"
+      interaction_point:
+        ip_ref: "IP-EXEC-TOOL-CLI"
+        channel: "CHAN-SHELL-EXEC"
+        object_flow: "diagnostic on stderr, exit 125 — Execution tool -> Claude Code -> Model"
+    - id: "exc-9"
+      at_step: 5
+      condition: "`input_policy` rejects an input: e.g. a netlist with `.control` and `shell`, or (reference step 4, call without `--in include=...`) `.include models/opamp.lib` that does not resolve to a declared `include` input"
+      system_reaction: "Exit 125, cause `policy`, reason on stderr; no exec dir, no `result.json`, no container (USC-005 exc-14). The agent corrects the netlist or adds the include input and retries."   # open: not implemented
+      exit_code: 125
+      cause: "policy"
+      interaction_point:
+        ip_ref: "IP-EXEC-TOOL-CLI"
+        channel: "CHAN-SHELL-EXEC"
+        object_flow: "diagnostic on stderr, exit 125 — Execution tool -> Claude Code -> Model"
+    - id: "exc-10"
+      at_step: 6
+      condition: "The execution fails in USC-005 steps 3-10 (setup, verify, denied, busy, timeout, cancel, oom, out_cap, exit, fetch)"
+      system_reaction: "Passed through unchanged with the USS-005 exit code and cause (USC-005 exc-2 to exc-13, alt-6); the model gets the exit code and output, `result.json` holds the cause when the exec dir exists."
+      exit_code: "as USC-005"
+      cause: "as USC-005"
+      interaction_point:
+        ip_ref: "IP-EXEC-TOOL-CLI"
+        channel: "CHAN-SHELL-EXEC"
+        object_flow: "exit code, diagnostic — Execution tool -> Claude Code -> Model"
+    - id: "exc-11"
+      at_step: 2
+      condition: "A write to `/etc/claude-code/` reaches the file system (e.g. a rule or hook did not block `Write /etc/claude-code/managed-settings.json`)"
+      system_reaction: "The write fails: the bundle is a read-only bind, root-owned; the policy is unchanged."
+      exit_code: "n/a (tool error)"
+      cause: "n/a"
+      interaction_point:
+        ip_ref: "IP-CLAUDE-POLICY-BUNDLE"
+        channel: "CHAN-FS-POLICY-BUNDLE"
+        object_flow: "`EROFS`/`EACCES` — /etc/claude-code -> Claude Code -> Model"
+    - id: "exc-12"
+      at_step: 3
+      condition: "The guard is bypassed (L1 to L3 failed: hook defect, Claude Code not enforcing it)"
+      system_reaction: "The agent has a free shell as uid 1001: it can change the workspace and read `/home/agent/.claude/.credentials.json`, but cannot change the policy (read-only mount), cannot start a more powerful container (`ephemeral-authz` denies, USC-005 alt-8) and stays contained by gVisor (USC-002) and the host network controls (USC-004)."
+      exit_code: "n/a"
+      cause: "n/a"
+      interaction_point:
+        ip_ref: "IP-INCONTAINER-ENGINE"
+        channel: "CHAN-ENGINE-API"
+        object_flow: "direct engine requests denied by `ephemeral-authz` — `dockerd` -> uid 1001 process"
+    - id: "exc-13"
+      at_step: 7
+      condition: "agent-graph cognitive step (alt-3): a protected file (`.process/`, `.input/`, `.tools/`, run state) changed during the turn"
+      system_reaction: "The step fails and the run stops (`NODE_FAILED`, USC-008); the further policy is `TBD`."   # open: L6 not implemented; runfs `WriteGuard` does not protect `.tools/`
+      exit_code: "n/a"
+      cause: "n/a"
+      interaction_point:
+        ip_ref: "IP-AGENT-RUN-WORKSPACE"
+        channel: "CHAN-FS-RUN-WORKSPACE"
+        object_flow: "hashes before and after the turn — /workspace -> agent-graph runtime"
+    - id: "exc-14"
+      at_step: 1
+      condition: "agent-graph, before the run (alt-3, alt-6): the process lists a tool outside the platform allowlist, or a profile in `runtime.profiles` is missing or invalid in `.tools/`"
+      system_reaction: "`validate.py` rejects the process, or the static check (USC-008 step 4, via `list --json`) fails; a pre-run error, not a run-time failure. No session starts."   # open: platform allowlist location (`TBD`), `runtime.profiles` not in the schema
+      exit_code: "n/a (pre-run error)"
+      cause: "n/a"
+      interaction_point:
+        ip_ref: "IP-EXEC-TOOL-CLI"
+        channel: "CHAN-SHELL-EXEC"
+        object_flow: "`list --json` result checked by agent-graph — Execution tool -> agent-graph"
+    - id: "exc-15"
+      at_step: 1
+      condition: "The policy bundle is missing, not mounted read-only, or writable by uid 1001"
+      system_reaction: "Precondition violated: the agent-sandbox final verification of USC-002 fails and the agent container is not released; no session starts."   # open: new check in `s08_verify`
+      exit_code: "n/a"
+      cause: "n/a"
+      interaction_point:
+        ip_ref: "IP-CLAUDE-POLICY-BUNDLE"
+        channel: "CHAN-FS-POLICY-BUNDLE"
+        object_flow: "owner, mode and `test -w` as uid 1001 checked — agent-sandbox -> /etc/claude-code"
+
+  postconditions:
+    - "Each tool call was decided by the managed settings and `agent-tool-guard`, both read from `/etc/claude-code/` only; nothing from the workspace widened the policy"
+    - "Only allowlisted commands ran, each a single simple command by absolute path; no shell, interpreter, `docker` call or unix-socket client was started by the agent"
+    - "After the tool run, `/workspace/.output/exec/e7/` holds `meta.json`, `result.json` (`exit` 0, cause `ok`), `stdout.log`, `stderr.log`, `in/` (empty, inputs used in place) and `out/sim.raw`, `out/sim.log`; the container ran the profile's fixed argv unchanged and was removed"
+    - "The agent wrote only within its write zones (`src/**`, `.output/**` except run folders and `meta.json`, in a cognitive step its work dir); every `meta.json` and run folder is unchanged; protected zones, the policy bundle and the credentials file are unchanged and the credentials were not read"
+    - "No MCP server was started; no excluded tool ran"
+    - "In a cognitive step: the protected-file hashes before and after the turn are equal"
+
+  notes:
+    - "Control claim (USS-009): the base toolset and the Bash guard are a guard on the agent's own actions, not the containment boundary. Containment is L4 (`ephemeral-authz`, USC-005) and L5 (gVisor, USC-002; host network controls, USC-004)."
+    - "Enforcement layers: L1 tool surface (`--tools`, managed deny), L2 managed settings, L3 `agent-tool-guard`, L4 engine authorization plugin, L5 platform, L6 detection (integrity check, `meta.json`)."
+    - "Policy placement: the bundle is a per-agent root-owned host folder written at every `create_agent_container` from `/usr/local/share/agent-sandbox/claude-code/`; a running agent keeps the policy it was created with; an update takes effect on recreation. Not in the image, so in-sandbox root cannot change it either."
+    - "`allowManagedPermissionRulesOnly` is not set, so agent-graph can narrow per turn with CLI allow rules."
+    - "Interactive vs. agent-graph: the interactive session reads all of `.input/` and accepts any profile in `.tools/`; a cognitive step reads only the bound inputs (InputReadGuard), writes only its work dir, and accepts only `EXEC_PROFILES`."
+    - "Run folders: the agent can write `.output/` but not `.agent/`, and the guard treats `.output/<name>/` as a run folder only when `.agent/<name>/` exists. A folder the agent creates in `.output/` therefore never becomes a run folder: agent-graph S2 creates `.agent/<runID>/` and `.output/<runID>/` exclusively, takes a suffix `-<n>` (n = 2..9) if either exists, and ends the run as `NOT_STARTED` with exit 1 if none is free (USS-008 \"Invocation\", USC-008 step 3 and err-19, SFR-AGG-003). `--resume` reuses only the folders of its own run."
+    - "Residual: `result.json` and the logs of an execution are writable by the agent; they are authoritative only as the exec tool returns them (exit code, stream). A folder the agent creates under `.output/exec/` blocks that exec ID (`--exec-id` must not exist, usage error 125, USC-005)."
+    - "A host operator's own `docker exec` shell, git and version control are host-side and out of scope. MCP-based tools are a separate later story."
+    - "Related: IP-CLAUDE-POLICY-BUNDLE and IP-TOOL-GUARD-HOOK are in the USS-009 section of `design/00_system_boundary/interaction_points.yml`; USC-002 creates and verifies the policy folder (steps 3, 4, 9); USC-005 is the exec part (steps 2-10); USC-008 step 3 creates the run folders. Follow-up: SSR-AGC-004 for the fourth mount."
+    - "Open (USS-009): managed-settings key names, precedence, path-rule syntax, drop-in folders, how to forbid all MCP servers; hook failure semantics and `allowManagedHooksOnly`; ro bind against in-sandbox uid 0 under gVisor; final command allowlist; whether the Bash tool passes the command unchanged; symlink handling of the built-ins; `Skill` and runtime skills; Bash default for cognitive steps; bundle and platform allowlist location; whether `--allowedTools` narrows; `spice-safe` include resolution; passing netlist params such as `tstop`; environment passing to hooks; run label for containers started from a cognitive-step Bash; free `run -- <argv>` in cognitive steps; concurrent Bash calls vs. slot accounting; L6; `.output/exec/` retention."

@@ -1,0 +1,109 @@
+#cloud-config
+# agent-host foundation VM for Multipass (Windows) and cloud providers.
+# Usage: multipass launch 26.04 --name agent-host --cpus 4 --memory 8G --disk 60G --cloud-init vm/agent-host.cloud-init.yaml
+# Replace the placeholder public key below with your own before launching.
+# GENERATED from *.in by vm/generate.sh — do not edit.
+
+hostname: agent-host
+
+users:
+  - default
+  - name: ubuntu
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAA...REPLACE_WITH_YOUR_PUBLIC_KEY
+
+ssh_pwauth: false
+
+# Ubuntu package mirror, applied before the foundation script installs packages.
+# For faster downloads use a country mirror, e.g. http://hu.archive.ubuntu.com/ubuntu (both lines).
+apt:
+  primary:
+    - arches: [default]
+      uri: http://archive.ubuntu.com/ubuntu
+  security:
+    - arches: [default]
+      uri: http://security.ubuntu.com/ubuntu
+
+write_files:
+  - path: /usr/local/sbin/agent-foundation.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/bin/bash
+      # agent-host foundation (contract items 3-6). Single source of truth.
+      # Idempotent; must run as root. Embedded into the Lima and cloud-init files by vm/generate.sh.
+      set -euo pipefail
+
+      FOUNDATION_VERSION=1
+      GO_VERSION=1.27.4
+      GO_SHA256_amd64=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
+      GO_SHA256_arm64=3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92
+
+      if [ "$(id -u)" -ne 0 ]; then
+        echo "foundation.sh must run as root" >&2
+        exit 1
+      fi
+
+      # Base packages (no docker, no containerd).
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -y
+      apt-get install -y --no-install-recommends \
+        git ca-certificates curl build-essential openssh-server unattended-upgrades
+      systemctl enable unattended-upgrades
+
+      # Pinned Go toolchain, sha256-verified per arch.
+      arch=$(dpkg --print-architecture)
+      case "$arch" in
+        amd64) go_sha=$GO_SHA256_amd64 ;;
+        arm64) go_sha=$GO_SHA256_arm64 ;;
+        *) echo "unsupported architecture: $arch" >&2; exit 1 ;;
+      esac
+      if [ "$(head -n1 /usr/local/go/VERSION 2>/dev/null || true)" != "go${GO_VERSION}" ]; then
+        tmp=$(mktemp -d)
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/go${GO_VERSION}.linux-${arch}.tar.gz"
+        echo "${go_sha}  $tmp/go.tgz" | sha256sum -c -
+        rm -rf /usr/local/go
+        tar -C /usr/local -xzf "$tmp/go.tgz"
+      fi
+      cat > /etc/profile.d/go.sh <<'EOF'
+      export PATH="$PATH:/usr/local/go/bin"
+      EOF
+      chmod 0644 /etc/profile.d/go.sh
+
+      # sshd hardening drop-in.
+      mkdir -p /etc/ssh/sshd_config.d /run/sshd
+      cat > /etc/ssh/sshd_config.d/10-foundation.conf <<'EOF'
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+      PubkeyAuthentication yes
+      AuthenticationMethods publickey
+      MaxAuthTries 3
+      LoginGraceTime 20
+      X11Forwarding no
+      AllowAgentForwarding no
+      AllowTcpForwarding local
+      ClientAliveInterval 300
+      EOF
+      chmod 0644 /etc/ssh/sshd_config.d/10-foundation.conf
+      if ! sshd -t; then
+        rm -f /etc/ssh/sshd_config.d/10-foundation.conf
+        echo "sshd -t failed; drop-in removed" >&2
+        exit 1
+      fi
+      systemctl reload ssh || systemctl restart ssh
+
+      # Marker (written last: its presence means the foundation is complete).
+      ubuntu_version=$(. /etc/os-release && echo "$VERSION_ID")
+      cat > /etc/agent-foundation <<EOF
+      FOUNDATION_VERSION=${FOUNDATION_VERSION}
+      GO_VERSION=${GO_VERSION}
+      UBUNTU=${ubuntu_version}
+      EOF
+      chmod 0644 /etc/agent-foundation
+
+runcmd:
+  - [/usr/local/sbin/agent-foundation.sh]

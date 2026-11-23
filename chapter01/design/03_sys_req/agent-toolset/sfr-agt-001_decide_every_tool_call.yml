@@ -1,0 +1,23 @@
+SFR-AGT-001:
+  title: "Decide every tool call before it runs"
+  kind: "functional"
+  usecase_step_ref: "USC-009: steps 1-3 (alternatives alt-1, alt-2)"
+
+  statement: "The system shall decide every tool call of the agent before the tool runs and run it only when the managed policy and the tool-call guard both allow it."
+
+  condition: "When the agent requests a tool call in an interactive session or a cognitive step."
+
+  interface_points:
+    - "IP-CLAUDE-CLI Claude command-line sessions"
+    - "IP-CLAUDE-POLICY-BUNDLE Agent policy bundle"
+    - "IP-TOOL-GUARD-HOOK Tool-call guard hook"
+
+  constraints:
+    - "Must check the call first against the managed policy read at IP-CLAUDE-POLICY-BUNDLE, then pass every command, read, edit, write, file-search and content-search call to the guard at IP-TOOL-GUARD-HOOK with the tool name and its full input."
+    - "Must run the tool only on an allow from both; a deny from either reaches the agent at IP-CLAUDE-CLI as a tool error with the reason, and the session continues."
+    - "Must decide a path input on its real path, so a symlink that leaves a zone is judged by its target, which SSR-AGT-003 holds."
+    - "Must run an allowed command as uid 1001 by its absolute path in a root-owned directory, with no shell and no search path lookup."
+
+  post_conditions:
+    - "No tool ran without an allow from both the managed policy and the guard."
+    - "Allowed calls ran and returned their result to the agent; a denied call left the session usable."

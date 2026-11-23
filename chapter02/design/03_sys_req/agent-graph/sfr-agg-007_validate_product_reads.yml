@@ -1,0 +1,21 @@
+SFR-AGG-007:
+  title: "Validate the products each step reads"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 4 (exception err-7)"
+
+  statement: "The system shall accept a process only when every product a step reads is produced on every path into that step."
+
+  condition: "When the selected process file has passed the definition check of SFR-AGG-005."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+    - "IP-CLI-AGENT-GRAPH-RUN Agent graph run command-line entrypoint"
+
+  constraints:
+    - "Must reject a read that names an unknown product and a read of a product not produced on every path into the reading step, except an optional read."
+    - "Must name step and product in the finding at IP-CLI-AGENT-GRAPH-RUN and offer through resolution (SFR-AGG-033) to fix the read or the transitions."
+    - "Must, on the developer's quit, report PROCESS_INVALID with exit status 3."
+
+  post_conditions:
+    - "No step read a product that may be absent."
+    - "Optional reads stay allowed."

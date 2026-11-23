@@ -1,0 +1,19 @@
+SSR-NET-003:
+  title: "Keep every agent port closed during removal"
+  kind: "structural"
+  usecase_step_ref: "USC-004: alt-2; USC-007: steps 5, 6"
+
+  statement: "The system shall keep no agent port open during disarming and removal, except for the accepted window recorded below between the table deletion and the neighbour entry and static forwarding entry deletion: after the port's released elements are deleted the gate drops its frames, and after the port's table is deleted the port also stays closed by `locked on` and port isolation."
+
+  condition: "For every disarm (by the disarm request, the clean slate of an arming, the guard of the sandbox or the removal tool) and every run of the removal tool, from its first change to its last."
+
+  interface_points:
+    - "IP-AGENT-NET Agent network control"
+
+  constraints:
+    - "Must keep `isolated on`, `locked on` and `learning off` on the veth throughout and never unlock or de-isolate a port while its container exists."
+    - "Must delete the port's elements of the set `released` first (so the gate closes the port before anything else of it is removed), then its netdev table `as_port_<id>`, then its iptables rules, then its neighbour entries and its static forwarding entries; the locked, isolated port is closed with no accept rule left. The same order as SFR-NET-012."
+    - "Accepted window (owner decision): between the deletion of the port's netdev table and the deletion of its neighbour entry and static forwarding entry the port may not yet be fully closed at the level of the per-port controls; the statement above does not claim otherwise for that interval, although the gate has dropped the port's frames since its released elements were deleted. The owner accepts this because the container is being removed (SFR-NET-012). The deletion order is not changed."
+    - "Must remove or disarm every agent container before deleting any leftover `as_port_*` table."
+    - "Must stop at the first failure while an agent container is still attached and leave the tables and rules of the containers still to remove in place."
+    - "Must not delete or change a table or rule of another port while disarming one container."

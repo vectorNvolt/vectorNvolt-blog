@@ -1,0 +1,39 @@
+SFR-HOST-009:
+  title: "Verify the USS-001 acceptance criteria on the created agent-host"
+  kind: "functional"
+  usecase_step_ref: "USC-001: step 8 (exception err-5)"
+
+  # Changed 2026-11-22: runs on the foundation VM. Withdrawn checks (WSL2 path removed): the distro listed as
+  # version 2, /etc/wsl.conf ownership, no host drive and no host program (/mnt/c, drvfs, WSLInterop,
+  # powershell.exe), the "degraded accepted for user@0.service" exception, "default user is agent-operator" and
+  # "no host path entries in the command search path".
+  # Added: the hostname checks (SFR-HOST-015) and the runsc entry in daemon.json.
+  statement: "The system shall verify each acceptance criterion of the configured agent-host VM by inspecting its actual state."
+
+  condition: "When the agent tools have been installed."
+
+  interface_points:
+    - "IP-HOST-EXEC Direct command execution on the foundation VM"
+    - "IP-CLI-CREATE-AGENT-HOST Developer command-line entrypoint"
+
+  constraints:
+    - "Must check on the VM as the user agent-operator (dropped from root with runuser) that the container engine, Python 3 runtime, credential keyring, version control tool and archive tool are available."
+    - "Must check on the VM as the user root that each of the thirteen dependency packages is installed (dpkg -s) and that ca-certificates, curl, gnupg and runsc work."
+    - "Must check on the VM as the user root that the container engine runtime list includes runsc."
+    - "Must check on the VM as the user root that docker buildx version works."
+    - "Must check on the VM as the user root that nft --version, iptables --version, ip -V and bridge -V succeed."
+    - "Must check on the VM as the user agent-operator that the runsc entry of /etc/docker/daemon.json has the path /usr/local/bin/runsc and the eight runtimeArgs of SSR-HOST-006, and that /etc/docker/daemon.json is owned root:root and not writable by agent-operator, as required by SFR-HOST-012."
+    - "Must check on the VM as the user root that a container started with the sandboxed runtime runs successfully."
+    - "Must check on the VM that the service manager reports exactly the state running (systemctl is-system-running); degraded is not accepted."
+    - "Must check on the VM as the user agent-operator that its UID and GID are 1001."
+    - "Must check on the VM that the hostname is agent-host and that the cloud-init drop-in /etc/cloud/cloud.cfg.d/99-agent-host-hostname.cfg has the content written by SFR-HOST-015."
+    - "Must check inside agent-host as the user agent-operator that it has no root-equivalent group membership or sudoers entry: not a member of the groups sudo, admin, wheel, adm, disk, lxd, libvirt and docker, no sudoers entry, the latter checked as `sudo -n true` failing (a missing sudo binary also passes)."
+    - "Must check inside agent-host as the user agent-operator that /usr/local/bin/create_agent_container, /usr/local/bin/remove_agent_container, /usr/local/bin/create_agent_net, /usr/local/bin/remove_agent_net, /usr/local/bin/agent_lifecycle, /usr/local/bin/enter_agent and /usr/local/bin/refresh_endpoints are owned root:root with mode 755 and match their reference SHA-256."
+    - "Must check inside agent-host as the user agent-operator that /etc/systemd/system/agent-restore.service and /etc/systemd/system/agent-guard.service have the content written by SFR-HOST-011 and are owned root:root with mode 644, that docker.service, agent-restore.service and agent-guard.service are enabled, that agent-guard.service is active and that agent-restore.service is active (exited)."
+    - "Must check inside agent-host as the user agent-operator that agent-guard.service has been running without a restart since its start (systemctl show NRestarts equals 0 and the main process is agent_lifecycle guard), that its unit has Restart always and ExecStart agent_lifecycle guard, and that the file /run/agent-sandbox/ready written by agent_lifecycle restore exists, so that the guard and the gate rebuild are both in place."
+    - "Must check inside agent-host as the user agent-operator that /usr/local/bin is owned by root and not writable by agent-operator."
+    - "Must, when at least one check fails, write each failed check to the error output at IP-CLI-CREATE-AGENT-HOST and return exit status 2."
+
+  post_conditions:
+    - "Success has not been reported while any check failed."
+    - "Every failed check is listed on the error output when at least one check failed."

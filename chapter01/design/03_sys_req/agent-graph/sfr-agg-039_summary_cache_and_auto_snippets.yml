@@ -1,0 +1,20 @@
+SFR-AGG-039:
+  title: "Use cached summaries and auto snippets in the working set"
+  kind: "functional"
+  usecase_step_ref: "USC-008: step 9"
+
+  statement: "The system shall add cached summaries of read items to the context pack and select and order snippets for the node instruction layers in a fixed way."
+
+  condition: "When the working set of a cognitive node is composed (compose_context)."
+
+  interface_points:
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must keep summaries of read items in the summary cache .agent/cache/summaries/ at IP-AGENT-RUN-WORKSPACE and show a cached summary in context.md next to the inline item or its path, summarizing rather than truncating (SFR-AGG-017)."
+    - "Must compose L2 of CLAUDE.md in this order: the step snippets, then the step snippets marked auto: true that match the node goal, sorted by id, then the generated step contract."
+    - "Must compose L3 of CLAUDE.md from the run facts in the order they occurred."
+
+  post_conditions:
+    - "The same inputs give the same snippet selection and order."
+    - "Items left out of context.md are listed by path."

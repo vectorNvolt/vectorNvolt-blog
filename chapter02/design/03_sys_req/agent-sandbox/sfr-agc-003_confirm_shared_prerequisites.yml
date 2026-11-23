@@ -1,0 +1,20 @@
+SFR-AGC-003:
+  title: "Confirm the shared agent network and the agent image exist"
+  kind: "functional"
+  usecase_step_ref: "USC-002: step 2 (preconditions: agent network, agent image; exceptions err-4, err-5)"
+
+  statement: "The system shall confirm that the shared agent network and the agent image already exist before it creates anything."
+
+  condition: "When the `runsc` runtime registration (the isolated execution runtime) has been verified."
+
+  interface_points:
+    - "IP-DOCKER-ENGINE Docker engine command interface"
+    - "IP-CLI-CREATE-AGENT-CONTAINER Developer command-line entrypoint"
+
+  constraints:
+    - "Must find the shared agent network and the agent image through IP-DOCKER-ENGINE before any workspace or container is created."
+    - "Must, when either of them is absent or unsuitable, write the failed check to the error output at IP-CLI-CREATE-AGENT-CONTAINER, return exit status 1 and create, build, fetch or repair none of them, which SSR-AGC-008 holds."
+
+  post_conditions:
+    - "No shared network, no image, no workspace and no container has been created, built or fetched when a prerequisite was absent."
+    - "The creation sequence continues when both prerequisites exist."

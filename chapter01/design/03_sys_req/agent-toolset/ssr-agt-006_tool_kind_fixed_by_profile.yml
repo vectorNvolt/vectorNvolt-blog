@@ -1,0 +1,20 @@
+SSR-AGT-006:
+  title: "Fix the command line and mounts of a tool run outside the agent"
+  kind: "structural"
+  usecase_step_ref: "USC-009: steps 4-6"
+
+  statement: "The system shall fix the command line, input filter and mounts of every tool run by the operator's profile and the tool kind, never by the agent."
+
+  condition: "For every tool run, from validation to the removal of its container."
+
+  interface_points:
+    - "IP-EXEC-TOOL-CLI Execution tool command line"
+    - "IP-INCONTAINER-ENGINE In-container engine interface"
+    - "IP-AGENT-RUN-WORKSPACE Agent run workspace"
+
+  constraints:
+    - "Must show tool profiles supplied by the operator into `.tools/`, not writable by the agent, which SSR-AGT-003 holds."
+    - "Must show a tool profile declaring a fixed entry, its argument list, inputs, input policy, typed parameters and limits, and never a mount or a network."
+    - "Must show the tool-kind mounts fixed in the execution tool: `src/` read-only, `build/` read-only only if declared, own `in/` read-only, own `out/` read-write, `/work` memory-backed and non-executable, `/tmp` and the home memory-backed (`/tmp` non-executable unless allowed), no network."
+    - "Must show `.input/`, `.process/`, `.tools/`, `.agent/`, other execution folders, version control, the policy folder, credentials and the engine socket never mounted; the engine policy denies any other bind source (SSR-AGE-003, SSR-AGE-007)."
+    - "Must show the tool-kind model held in the execution tool together with the other kinds, which SSR-AGE-014 holds."
